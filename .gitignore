@@ -1,0 +1,15 @@
+*.pcd
+*.ply
+*.bag
+
+build/
+devel/
+install/
+CMakeFiles/
+log/
+*.o
+*.so
+*.a
+
+.vscode/
+.idea/
