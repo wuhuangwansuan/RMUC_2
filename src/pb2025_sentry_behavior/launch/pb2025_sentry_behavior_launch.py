@@ -31,7 +31,7 @@ def generate_launch_description():
     # Create the launch configuration variables
     namespace = LaunchConfiguration("namespace")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    params_file = LaunchConfiguration("params_file")
+    params_file = LaunchConfiguration("behavior_params_file")
     log_level = LaunchConfiguration("log_level")
     mapping_bootstrap_enabled = LaunchConfiguration("mapping_bootstrap_enabled")
     target_tree = LaunchConfiguration("target_tree")
@@ -46,7 +46,7 @@ def generate_launch_description():
     configured_params = ParameterFile(
         RewrittenYaml(
             source_file=params_file,
-            root_key=namespace,
+            # root_key=namespace,
             param_rewrites=param_substitutions,
             convert_types=True,
         ),
@@ -73,7 +73,7 @@ def generate_launch_description():
     )
 
     declare_params_file_cmd = DeclareLaunchArgument(
-        "params_file",
+        "behavior_params_file",
         default_value=os.path.join(bringup_dir, "params", "sentry_behavior.yaml"),
         description="Full path to the ROS2 parameters file to use for all launched nodes",
     )

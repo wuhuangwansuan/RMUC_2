@@ -90,6 +90,7 @@ def generate_launch_description():
     start_map_saver_server_cmd = Node(
         package="nav2_map_server",
         executable="map_saver_server",
+        name='map_saver', 
         output="screen",
         respawn=use_respawn,
         respawn_delay=2.0,

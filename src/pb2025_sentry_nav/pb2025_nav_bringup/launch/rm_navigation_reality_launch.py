@@ -71,13 +71,13 @@ def generate_launch_description():
 
     declare_map_yaml_cmd = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(bringup_dir, "map", "RMUC26.yaml"),
+        default_value=os.path.join(bringup_dir, "map", "reality", "GX_test_3.yaml"),
         description="Full path to map file to load",
     )
 
     declare_prior_pcd_file_cmd = DeclareLaunchArgument(
         "prior_pcd_file",
-        default_value=os.path.join(bringup_dir, "pcd", "scans.pcd"),
+        default_value=os.path.join(bringup_dir, "pcd", "GX_test_3.pcd"),
         description="Full path to prior PCD file to load",
     )
 
@@ -195,28 +195,28 @@ def generate_launch_description():
         }.items(),
     )
 
-    # mapping_bootstrap_cmd = Node(
-    #     package="pb2025_nav_bringup",
-    #     executable="mapping_mission_manager",
-    #     name="mapping_mission_manager",
-    #     output="screen",
-    #     parameters=[
-    #         os.path.join(bringup_dir, "config", "reality", "mapping_bootstrap.yaml")
-    #     ],
-    #     condition=IfCondition(slam),
-    # )
+    mapping_bootstrap_cmd = Node(
+        package="pb2025_nav_bringup",
+        executable="mapping_mission_manager",
+        name="mapping_mission_manager",
+        output="screen",
+        parameters=[
+            os.path.join(bringup_dir, "config", "reality", "mapping_bootstrap.yaml")
+        ],
+        condition=IfCondition(slam),
+    )
 
-    # behavior_cmd = IncludeLaunchDescription(
-    #     PythonLaunchDescriptionSource(
-    #         os.path.join(behavior_launch_dir, "pb2025_sentry_behavior_launch.py")
-    #     ),
-    #     launch_arguments={
-    #         "namespace": namespace,
-    #         "use_sim_time": use_sim_time,
-    #         "mapping_bootstrap_enabled": slam,
-    #     }.items(),
-    # )
-
+    behavior_cmd = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(behavior_launch_dir, "pb2025_sentry_behavior_launch.py")
+        ),
+        launch_arguments={
+            "namespace": namespace,
+            "use_sim_time": use_sim_time,
+            "mapping_bootstrap_enabled": slam,
+        }.items(),
+    )
+    
     # joy_teleop_cmd = IncludeLaunchDescription(
     #     PythonLaunchDescriptionSource(os.path.join(launch_dir, "joy_teleop_launch.py")),
     #     launch_arguments={
@@ -247,9 +247,9 @@ def generate_launch_description():
     ld.add_action(start_robot_state_publisher_cmd)
     ld.add_action(start_livox_ros_driver2_node)
     ld.add_action(bringup_cmd)
-    # ld.add_action(mapping_bootstrap_cmd)
-    # ld.add_action(behavior_cmd)
-    #ld.add_action(joy_teleop_cmd)
+    ld.add_action(mapping_bootstrap_cmd)
+    ld.add_action(behavior_cmd)
+    # ld.add_action(joy_teleop_cmd)
     ld.add_action(rviz_cmd)
 
     return ld

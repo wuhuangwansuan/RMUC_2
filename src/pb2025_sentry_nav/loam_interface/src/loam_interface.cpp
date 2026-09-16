@@ -86,7 +86,7 @@ void LoamInterfaceNode::odometryCallback(const nav_msgs::msg::Odometry::ConstSha
   nav_msgs::msg::Odometry out;
   out.header.stamp = msg->header.stamp;
   out.header.frame_id = odom_frame_;
-  out.child_frame_id = lidar_frame_;
+  out.child_frame_id = base_frame_;//这里的里程计应该已经换算到base_footprint在odom系下了。所以将师长的lidar_frame_改为base_frame_
 
   const auto & origin = tf_odom_to_lidar.getOrigin();
   out.pose.pose.position.x = origin.x();

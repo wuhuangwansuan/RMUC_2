@@ -130,13 +130,13 @@ def generate_launch_description():
         remappings=[("/Odometry", "/aft_mapped_to_init")],
     )
 
-    # static_map_to_odom_tf = Node(
-    #     package="tf2_ros",
-    #     executable="static_transform_publisher",
-    #     name="static_map_to_odom_tf",
-    #     output="screen",
-    #     arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
-    # )
+    static_map_to_odom_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_map_to_odom_tf",
+        output="screen",
+        arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+    )
 
     start_static_transform_node = Node(
         package="tf2_ros",
@@ -249,12 +249,12 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
-    ld.add_action(start_static_transform_node)
+    # ld.add_action(start_static_transform_node)
 
     # Add the actions to launch all of the localiztion nodes
     ld.add_action(start_fastlio_node)
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
-    #   ld.add_action(static_map_to_odom_tf)
+    ld.add_action(static_map_to_odom_tf)
 
     return ld

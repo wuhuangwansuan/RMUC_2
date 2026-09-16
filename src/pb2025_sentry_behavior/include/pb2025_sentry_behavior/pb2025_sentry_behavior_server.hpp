@@ -77,6 +77,7 @@ private:
   std::shared_ptr<BT::StdCoutLogger> logger_cout_;
   uint32_t tick_count_;
   bool use_cout_logger_;
+  bool mapping_bootstrap_enabled{false};
 };
 
 }  // namespace pb2025_sentry_behavior

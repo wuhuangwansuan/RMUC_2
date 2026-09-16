@@ -28,6 +28,8 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 
+#include "pb_rm_interfaces/msg/game_status.hpp"
+
 namespace sensor_scan_generation
 {
 
@@ -53,10 +55,14 @@ private:
     const tf2::Transform & transform, std::string parent_frame, const std::string & child_frame,
     const rclcpp::Time & stamp);
 
+  void start_msg_Trans2SLAM(const pb_rm_interfaces::msg::GameStatus::SharedPtr msg);
+
   std::string lidar_frame_;
   std::string base_frame_;
   std::string robot_base_frame_;
   double tf_future_offset_sec_{0.2};
+  bool start_slam_{false};
+  bool isfirst_{false};
 
   std::unique_ptr<tf2_ros::TransformBroadcaster> br_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_laser_cloud_;
@@ -67,6 +73,7 @@ private:
 
   message_filters::Subscriber<nav_msgs::msg::Odometry> odometry_sub_;
   message_filters::Subscriber<sensor_msgs::msg::PointCloud2> laser_cloud_sub_;
+  rclcpp::Subscription<pb_rm_interfaces::msg::GameStatus>::SharedPtr slam_status_sub_;
 
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
     nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;

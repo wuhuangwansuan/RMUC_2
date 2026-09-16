@@ -78,7 +78,7 @@ fastlio:
       pcd_save_en: true
       interval: -1
 
-loam_interface:
+loam_interface:                        #fastlio输出的里程计是lio_odom作为odom_frame_id，在这里我们给他重新映射为odom
   ros__parameters:
     use_sim_time: False
     state_estimation_topic: "aft_mapped_to_init"
@@ -207,6 +207,7 @@ slam_toolbox:
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     ceres_loss_function: None
 
+    odom_topic: /lidar_odometry
     odom_frame: odom
     map_frame: map
     base_frame: base_footprint
@@ -224,7 +225,7 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     scan_queue_size: 10
-    transform_publish_period: 0.0                # if 0 never publishes odometry
+    transform_publish_period: 0.2                # if 0 never publishes odometry///////////////////////////////从0修改至0.2，不知道有什么影响，正在查
     map_update_interval: 0.5
     resolution: 0.05
     min_laser_range: 0.3                         # for rastering images
@@ -480,10 +481,10 @@ local_costmap:
           # It doesn't need to start with '/'
           topic: /terrain_map
           sensor_frame: base_footprint
-          min_obstacle_height: 0.0                #这个参数定义了被认为是障碍物的点云点的最低高度。机器人将忽略低于此高度的点云点，这些点通常被认为是地面或其他非障碍物。根据机器人的尺寸和环境调整这个参数，以确保机器人能够正确地识别障碍物。
+          min_obstacle_height: -1.0                #[在雷达外参不准的状况下可能会开成负数]这个参数定义了被认为是障碍物的点云点的最低高度。机器人将忽略低于此高度的点云点，这些点通常被认为是地面或其他非障碍物。根据机器人的尺寸和环境调整这个参数，以确保机器人能够正确地识别障碍物。
           max_obstacle_height: 1.5                #这个参数定义了被认为是障碍物的点云点的最高高度。机器人将忽略高于此高度的点云点，这些点通常被认为是天花板或其他非障碍物。根据机器人的尺寸和环境调整这个参数，以确保机器人能够正确地识别障碍物。
-          obstacle_max_range: 5.0             #这个参数定义了被认为是障碍物的点云点的最大距离。机器人将忽略超过此距离的点云点，这些点通常被认为是远处的物体或噪声。根据机器人的传感器范围和环境调整这个参数，以确保机器人能够正确地识别障碍物。 
-          obstacle_min_range: 0.4            # 降低近距过滤，避免近距离挡路障碍被直接滤掉。
+          obstacle_max_range: 3.0             #这个参数定义了被认为是障碍物的点云点的最大距离。机器人将忽略超过此距离的点云点，这些点通常被认为是远处的物体或噪声。根据机器人的传感器范围和环境调整这个参数，以确保机器人能够正确地识别障碍物。 
+          obstacle_min_range: 0.3            # 降低近距过滤，避免近距离挡路障碍被直接滤掉。
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True

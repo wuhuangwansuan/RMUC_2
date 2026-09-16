@@ -51,14 +51,18 @@ public:
     declare_parameter("pcd_save_path", std::string());
     declare_parameter("grid_map_save_path", std::string());
     declare_parameter("goal1", std::vector<double>({2.0, 0.0, 0.0}));
-    declare_parameter("goal2", std::vector<double>({8.65, -3.5, 0.0}));
-    declare_parameter("goal3", std::vector<double>({4.0, 3.0, 0.0}));
+    declare_parameter("goal2", std::vector<double>({3.0, -2.0, 0.0}));
+    declare_parameter("goal3", std::vector<double>({2.0, -3.0, 0.0}));
 
     enabled_ = get_parameter("enabled").as_bool();
     game_start_progress_ = get_parameter("game_start_progress").as_int();
     bootstrap_timeout_sec_ = get_parameter("bootstrap_timeout_sec").as_double();
     pcd_save_path_ = get_parameter("pcd_save_path").as_string();
     grid_map_save_path_ = get_parameter("grid_map_save_path").as_string();
+
+    //test:
+    // timer = create_wall_timer(chrono::seconds(20),std::bind(&MappingMissinManager::pub4,this));
+    
 
     loadGoal("goal1");
     loadGoal("goal2");
@@ -90,10 +94,16 @@ public:
 
     nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
     pcd_save_client_ = create_client<fast_lio::srv::SavePcdMap>("/map_save");
-    grid_map_save_client_ = create_client<nav2_msgs::srv::SaveMap>("/save_map");
+    grid_map_save_client_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   }
 
 private:
+  //test
+  // void pub4()
+  // {
+  //   game_start_progress_ = 4;
+  // }
+
   void loadGoal(const std::string & parameter_name)
   {
     const auto values = get_parameter(parameter_name).as_double_array();

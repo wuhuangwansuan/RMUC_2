@@ -17,6 +17,8 @@
 #include "pcl_ros/transforms.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
+#include "pb_rm_interfaces/msg/game_status.hpp"
+
 namespace sensor_scan_generation
 {
 
@@ -43,6 +45,11 @@ SensorScanGenerationNode::SensorScanGenerationNode(const rclcpp::NodeOptions & o
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
+  //--------------------------------------
+  slam_status_sub_ = this->create_subscription<pb_rm_interfaces::msg::GameStatus>(
+  "referee/game_status",10,
+  std::bind(&SensorScanGenerationNode::start_msg_Trans2SLAM,this,std::placeholders::_1));
+
   pub_laser_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("sensor_scan", 2);
   pub_chassis_odometry_ = this->create_publisher<nav_msgs::msg::Odometry>("odometry", 2);
 
@@ -67,10 +74,30 @@ SensorScanGenerationNode::SensorScanGenerationNode(const rclcpp::NodeOptions & o
     std::placeholders::_2));
 }
 
+void SensorScanGenerationNode::start_msg_Trans2SLAM(const pb_rm_interfaces::msg::GameStatus::SharedPtr msg)
+{
+  if (msg->game_progress != 4)//’2‘裁判系统自检，测试阶段先改为4
+  {
+    RCLCPP_INFO(this->get_logger(),"等待裁判系统发2开始比赛");
+    return;
+  }
+  start_slam_ = true;
+  if(!isfirst_)
+  {
+    RCLCPP_INFO(this->get_logger(),"人已离场,输出点云");
+    isfirst_ = true;
+  }
+}
+
 void SensorScanGenerationNode::laserCloudAndOdometryHandler(
   const nav_msgs::msg::Odometry::ConstSharedPtr & odometry_msg,
   const sensor_msgs::msg::PointCloud2::ConstSharedPtr & pcd_msg)
 {
+  if(!start_slam_)
+  {
+    RCLCPP_INFO(this->get_logger(),"比赛未开始，不输出点云哦～");
+    return;
+  }
   tf2::Transform tf_lidar_to_chassis;
   tf2::Transform tf_odom_to_chassis;
   tf2::Transform tf_odom_to_robot_base;

@@ -60,9 +60,16 @@ SentryBehaviorServer::SentryBehaviorServer(const rclcpp::NodeOptions & options)
 {
   globalBlackboard()->set("node", node());
   globalBlackboard()->set("status_convert_temp_status", 2);
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   node()->declare_parameter("mapping_bootstrap_enabled", false);
-  bool mapping_bootstrap_enabled = false;
   node()->get_parameter("mapping_bootstrap_enabled", mapping_bootstrap_enabled);
+  //------------------------------
+  RCLCPP_INFO(
+    node()->get_logger(), "%s",
+    greenLog(std::string("-------///////接收传入的mapping_bootstrap_enabled参数值///////------: ") +
+    (mapping_bootstrap_enabled ? "启用" : "关闭")).c_str());
+  //----------------------
   globalBlackboard()->set("mapping_bootstrap_enabled", mapping_bootstrap_enabled);
   globalBlackboard()->set("mapping_bootstrap_finished", std_msgs::msg::Bool());
   RCLCPP_INFO(
@@ -70,6 +77,7 @@ SentryBehaviorServer::SentryBehaviorServer(const rclcpp::NodeOptions & options)
     greenLog(std::string("行为树建图引导门控: ") +
     (mapping_bootstrap_enabled ? "启用" : "关闭")).c_str());
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   node()->declare_parameter("use_cout_logger", false);
   node()->get_parameter("use_cout_logger", use_cout_logger_);
 
