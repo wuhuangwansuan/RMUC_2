@@ -35,6 +35,7 @@ def generate_launch_description():
     autostart = LaunchConfiguration("autostart")
     use_respawn = LaunchConfiguration("use_respawn")
     log_level = LaunchConfiguration("log_level")
+    origin_map_file_name = LaunchConfiguration("origin_map_file_name")
 
     # Variables
     lifecycle_nodes = ["map_saver"]
@@ -87,6 +88,11 @@ def generate_launch_description():
         "log_level", default_value="info", description="log level"
     )
 
+    declare_origin_map_file_name_node = DeclareLaunchArgument(
+        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", ""),
+        description= "map file to help nav when slam.",
+    )
+
     start_map_saver_server_cmd = Node(
         package="nav2_map_server",
         executable="map_saver_server",
@@ -133,7 +139,8 @@ def generate_launch_description():
         output="screen",
         respawn=use_respawn,
         respawn_delay=2.0,
-        parameters=[configured_params],
+        parameters=[configured_params,
+                    {"map_file_name":origin_map_file_name}],
         arguments=["--ros-args", "--log-level", log_level],
         remappings=[
             ("/map", "map"),
@@ -168,6 +175,7 @@ def generate_launch_description():
     ld.add_action(declare_autostart_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_origin_map_file_name_node)
 
     # Running Map Saver Server
     ld.add_action(start_map_saver_server_cmd)

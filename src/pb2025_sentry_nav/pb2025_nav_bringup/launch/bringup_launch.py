@@ -51,6 +51,8 @@ def generate_launch_description():
     use_respawn = LaunchConfiguration("use_respawn")
     use_robot_state_pub = LaunchConfiguration("use_robot_state_pub")
     log_level = LaunchConfiguration("log_level")
+    origin_map_file_name = LaunchConfiguration("origin_map_file_name")
+    
 
     # Create our own temporary YAML files that include substitutions
     param_substitutions = {"use_sim_time": use_sim_time, "yaml_filename": map_yaml_file}
@@ -147,6 +149,11 @@ def generate_launch_description():
         "log_level", default_value="info", description="log level"
     )
 
+    declare_origin_map_file_name_node = DeclareLaunchArgument(
+        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", ""),
+        description= "map file to help nav when slam.",
+    )
+
     # Specify the actions
     bringup_cmd_group = GroupAction(
         [
@@ -201,6 +208,7 @@ def generate_launch_description():
                     "autostart": autostart,
                     "use_respawn": use_respawn,
                     "params_file": params_file,
+                    "origin_map_file_name": origin_map_file_name,
                 }.items(),
             ),
 
@@ -240,6 +248,7 @@ def generate_launch_description():
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_use_robot_state_pub_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_origin_map_file_name_node)
 
     # Add the actions to launch all of the navigation nodes
     ld.add_action(bringup_cmd_group)

@@ -45,6 +45,7 @@ def generate_launch_description():
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     use_robot_state_pub = LaunchConfiguration("use_robot_state_pub")
     use_rviz = LaunchConfiguration("use_rviz")
+    origin_map_file_name = LaunchConfiguration("origin_map_file_name")
 
     behavior_launch_dir = os.path.join(
         get_package_share_directory("pb2025_sentry_behavior"), "launch"
@@ -129,6 +130,11 @@ def generate_launch_description():
         "use_rviz", default_value="True", description="Whether to start RVIZ"
     )
 
+    declare_origin_map_file_name_node = DeclareLaunchArgument(
+        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", ""),
+        description= "map file to help nav when slam.",
+    )
+
     configured_params = ParameterFile(
         RewrittenYaml(
             source_file=params_file,
@@ -192,6 +198,7 @@ def generate_launch_description():
             "use_composition": use_composition,
             "use_respawn": use_respawn,
             "use_robot_state_pub": "False",
+            "origin_map_file_name": origin_map_file_name,
         }.items(),
     )
 
@@ -242,6 +249,7 @@ def generate_launch_description():
     ld.add_action(declare_use_robot_state_pub_cmd)
     ld.add_action(declare_use_rviz_cmd)
     ld.add_action(declare_use_respawn_cmd)
+    ld.add_action(declare_origin_map_file_name_node)
 
     # Add the actions to launch all of the navigation nodes
     ld.add_action(start_robot_state_publisher_cmd)
