@@ -102,36 +102,8 @@ public:
     pcd_save_client_ = create_client<fast_lio::srv::SavePcdMap>("/map_save");
     grid_map_save_client_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   }
-  
-    void initLifecycleClient()
-{
-  lifecycle_client_ = std::make_shared<nav2_util::LifecycleServiceClient>("bt_navigator", shared_from_this());
-  lifecycle_check_timer_ = create_wall_timer(std::chrono::seconds(2),std::bind(&MappingMissionManager::checkLifecycleState, this));
-}
 
 private:
-  void checkLifecycleState()
-  {
-    if(bt_nav_avtive_)
-    {
-      return;
-    }
-    try {
-        uint8_t state_id = lifecycle_client_->get_state(std::chrono::seconds(1));
-
-        if (state_id == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) 
-        {
-          RCLCPP_INFO(get_logger(), "bt_navigator is ACTIVE");
-          bt_nav_avtive_ = true;
-        } else {
-          RCLCPP_WARN(get_logger(), "bt_navigator is NOT active (state id: %d)", state_id);
-        }
-    } catch (const std::runtime_error & e) 
-    {
-      RCLCPP_ERROR(get_logger(), "Failed to get bt_navigator state: %s", e.what());
-    }
-  }
-
   bool got_tf_gimbal_yaw2odom()
   {
     auto tf_ready_ = tf_buffer_->canTransform("odom", "gimbal_yaw_fake", tf2::TimePointZero, tf2::durationFromSec(0.5));
@@ -158,7 +130,28 @@ private:
       return;
     }
     auto cantransform_ = got_tf_gimbal_yaw2odom();
-    if(!cantransform_&&!bt_nav_avtive_)
+    lifecycle_client_ = std::make_shared<nav2_util::LifecycleServiceClient>("bt_navigator", shared_from_this());
+    if (bt_nav_avtive_)
+    {
+      return;
+    }else{
+      try{
+        uint8_t state_id = lifecycle_client_->get_state(std::chrono::seconds(1));
+
+        if (state_id == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) 
+        {
+          RCLCPP_INFO(get_logger(), "bt_navigator is ACTIVE");
+          bt_nav_avtive_ = true;
+        } else {
+          RCLCPP_WARN(get_logger(), "bt_navigator is NOT active (state id: %d)", state_id);
+        }
+      }catch (const std::runtime_error & e) 
+      {
+        RCLCPP_ERROR(get_logger(), "Failed to get bt_navigator state: %s", e.what());
+      }
+    }
+    
+    if(!cantransform_ || !bt_nav_avtive_)
     {
       RCLCPP_WARN(get_logger(),"%s", greenLog("正在查找tf: gimbal_yaw_fake -> odom").c_str());
       return;
@@ -340,7 +333,6 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bootstrap_finished_pub_;
   rclcpp::TimerBase::SharedPtr bootstrap_deadline_timer_;
   rclcpp::TimerBase::SharedPtr retry_goal_timer_;
-  rclcpp::TimerBase::SharedPtr lifecycle_check_timer_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
   rclcpp::Client<fast_lio::srv::SavePcdMap>::SharedPtr pcd_save_client_;
   rclcpp::Client<nav2_msgs::srv::SaveMap>::SharedPtr grid_map_save_client_;
@@ -353,7 +345,6 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<MappingMissionManager>(rclcpp::NodeOptions());
-  node->initLifecycleClient(); 
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
