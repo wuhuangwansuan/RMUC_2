@@ -360,8 +360,9 @@ def generate_launch_description():
     # Add the actions to launch all of the navigation nodes
     ld.add_action(start_terrain_analysis_cmd)
     ld.add_action(start_terrain_analysis_ext_cmd)
+    ld.add_action(start_controller_server_cmd)
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
-    ld.add_action(start_controller_server_cmd)
+    
 
     return ld

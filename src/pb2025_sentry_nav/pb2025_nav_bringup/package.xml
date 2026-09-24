@@ -50,6 +50,10 @@
   <test_depend>ament_cmake_clang_format</test_depend>
   <test_depend>ament_cmake_black</test_depend>
 
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>nav2_util</depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>

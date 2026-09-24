@@ -21,6 +21,7 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.conditions import (
     IfCondition,
@@ -150,7 +151,7 @@ def generate_launch_description():
     )
 
     declare_origin_map_file_name_node = DeclareLaunchArgument(
-        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", ""),
+        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", "origin"),
         description= "map file to help nav when slam.",
     )
 
@@ -212,20 +213,24 @@ def generate_launch_description():
                 }.items(),
             ),
 
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(launch_dir, "navigation_launch.py")
-                ),
-                launch_arguments={
-                    "namespace": namespace,
-                    "use_sim_time": use_sim_time,
-                    "autostart": autostart,
-                    "params_file": params_file,
-                    "use_composition": use_composition,
-                    "use_respawn": use_respawn,
-                    "container_name": "nav2_container",
-                }.items(),
-            ),
+            TimerAction(
+                period=3.0,
+                actions=[
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        os.path.join(launch_dir, "navigation_launch.py")
+                    ),
+                    launch_arguments={
+                        "namespace": namespace,
+                        "use_sim_time": use_sim_time,
+                        "autostart": autostart,
+                        "params_file": params_file,
+                        "use_composition": use_composition,
+                        "use_respawn": use_respawn,
+                        "container_name": "nav2_container",
+                    }.items(),
+                ),]
+            )
         ]
     )
 

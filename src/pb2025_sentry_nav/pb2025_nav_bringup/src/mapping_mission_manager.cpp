@@ -11,6 +11,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+#include "nav2_util/lifecycle_service_client.hpp"
+#include "lifecycle_msgs/msg/state.hpp"
 
 using namespace std::chrono_literals;
 
@@ -53,17 +57,19 @@ public:
     declare_parameter("goal1", std::vector<double>({2.0, 0.0, 0.0}));
     declare_parameter("goal2", std::vector<double>({3.0, -2.0, 0.0}));
     declare_parameter("goal3", std::vector<double>({2.0, -3.0, 0.0}));
+    declare_parameter("const_origin_point",std::vector<double>({0.5, 0.0, 0.0}));
 
     enabled_ = get_parameter("enabled").as_bool();
     game_start_progress_ = get_parameter("game_start_progress").as_int();
     bootstrap_timeout_sec_ = get_parameter("bootstrap_timeout_sec").as_double();
     pcd_save_path_ = get_parameter("pcd_save_path").as_string();
     grid_map_save_path_ = get_parameter("grid_map_save_path").as_string();
-
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
     //test:
     // timer = create_wall_timer(chrono::seconds(20),std::bind(&MappingMissinManager::pub4,this));
     
-
+    loadGoal("const_origin_point");
     loadGoal("goal1");
     loadGoal("goal2");
     loadGoal("goal3");
@@ -96,13 +102,41 @@ public:
     pcd_save_client_ = create_client<fast_lio::srv::SavePcdMap>("/map_save");
     grid_map_save_client_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   }
+  
+    void initLifecycleClient()
+{
+  lifecycle_client_ = std::make_shared<nav2_util::LifecycleServiceClient>("bt_navigator", shared_from_this());
+  lifecycle_check_timer_ = create_wall_timer(std::chrono::seconds(2),std::bind(&MappingMissionManager::checkLifecycleState, this));
+}
 
 private:
-  //test
-  // void pub4()
-  // {
-  //   game_start_progress_ = 4;
-  // }
+  void checkLifecycleState()
+  {
+    if(bt_nav_avtive_)
+    {
+      return;
+    }
+    try {
+        uint8_t state_id = lifecycle_client_->get_state(std::chrono::seconds(1));
+
+        if (state_id == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) 
+        {
+          RCLCPP_INFO(get_logger(), "bt_navigator is ACTIVE");
+          bt_nav_avtive_ = true;
+        } else {
+          RCLCPP_WARN(get_logger(), "bt_navigator is NOT active (state id: %d)", state_id);
+        }
+    } catch (const std::runtime_error & e) 
+    {
+      RCLCPP_ERROR(get_logger(), "Failed to get bt_navigator state: %s", e.what());
+    }
+  }
+
+  bool got_tf_gimbal_yaw2odom()
+  {
+    auto tf_ready_ = tf_buffer_->canTransform("odom", "gimbal_yaw_fake", tf2::TimePointZero, tf2::durationFromSec(0.5));
+    return tf_ready_;
+  }
 
   void loadGoal(const std::string & parameter_name)
   {
@@ -119,10 +153,18 @@ private:
       return;
     }
 
-    if (msg->game_progress != game_start_progress_) {
+    if (msg->game_progress != game_start_progress_) 
+    {
       return;
     }
-
+    auto cantransform_ = got_tf_gimbal_yaw2odom();
+    if(!cantransform_&&!bt_nav_avtive_)
+    {
+      RCLCPP_WARN(get_logger(),"%s", greenLog("正在查找tf: gimbal_yaw_fake -> odom").c_str());
+      return;
+    }else{
+      RCLCPP_INFO(get_logger(),"%s", greenLog("tf初始化完成,导航栈启动成功").c_str());
+    }
     bootstrap_started_ = true;
     RCLCPP_INFO(
       get_logger(), "%s", greenLog("比赛开始，启动建图引导任务，并开始 20 秒建图计时").c_str());
@@ -286,6 +328,7 @@ private:
   bool enabled_{true};
   bool bootstrap_started_{false};
   bool bootstrap_finished_{false};
+  bool bt_nav_avtive_{false};
   int game_start_progress_{4};
   double bootstrap_timeout_sec_{20.0};
   std::string pcd_save_path_;
@@ -297,15 +340,21 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bootstrap_finished_pub_;
   rclcpp::TimerBase::SharedPtr bootstrap_deadline_timer_;
   rclcpp::TimerBase::SharedPtr retry_goal_timer_;
+  rclcpp::TimerBase::SharedPtr lifecycle_check_timer_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
   rclcpp::Client<fast_lio::srv::SavePcdMap>::SharedPtr pcd_save_client_;
   rclcpp::Client<nav2_msgs::srv::SaveMap>::SharedPtr grid_map_save_client_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::shared_ptr<nav2_util::LifecycleServiceClient> lifecycle_client_;
 };
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<MappingMissionManager>(rclcpp::NodeOptions()));
+  auto node = std::make_shared<MappingMissionManager>(rclcpp::NodeOptions());
+  node->initLifecycleClient(); 
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }

@@ -89,7 +89,7 @@ def generate_launch_description():
     )
 
     declare_origin_map_file_name_node = DeclareLaunchArgument(
-        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", ""),
+        "origin_map_file_name",default_value=os.path.join(bringup_dir, "map","origin", "origin"),
         description= "map file to help nav when slam.",
     )
 
