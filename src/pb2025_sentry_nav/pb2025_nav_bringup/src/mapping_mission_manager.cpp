@@ -153,7 +153,10 @@ private:
     
     if(!cantransform_ || !bt_nav_avtive_)
     {
-      RCLCPP_WARN(get_logger(),"%s", greenLog("正在查找tf: gimbal_yaw_fake -> odom").c_str());
+      RCLCPP_WARN(get_logger(), "%s",
+          greenLog("bt_nav_active:" + std::to_string(bt_nav_avtive_)).c_str());
+      RCLCPP_WARN(get_logger(), "%s",
+          greenLog("cantransform:" + std::to_string(cantransform_)).c_str());
       return;
     }else{
       RCLCPP_INFO(get_logger(),"%s", greenLog("tf初始化完成,导航栈启动成功").c_str());
@@ -165,7 +168,6 @@ private:
     bootstrap_deadline_timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(bootstrap_timeout_sec_)),
       std::bind(&MappingMissionManager::onBootstrapTimeout, this));
-
     sendNextGoal();
   }
 

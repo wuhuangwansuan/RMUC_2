@@ -1,7 +1,7 @@
 
 livox_ros_driver2:
   ros__parameters:
-    xfer_format: 1                                      # FAST-LIO dual MID360 subscribes to Livox CustomMsg
+    xfer_format: 1                                      # FAST-LIO dual MID360 subscribes to Livox CustomMsg 
     multi_topic: 1                                      # Dual MID360 requires one topic per LiDAR
     data_src: 0                                         # 0-lidar, others-Invalid data src
     publish_freq: 50.0                                  # frequency of publish, 5.0, 10.0, 20.0, 50.0, etc.

@@ -72,13 +72,13 @@ def generate_launch_description():
 
     declare_map_yaml_cmd = DeclareLaunchArgument(
         "map",
-        default_value=os.path.join(bringup_dir, "map", "reality", "GX_test_3.yaml"),
+        default_value=os.path.join(bringup_dir, "map", "reality", "GX_test_show.yaml"),
         description="Full path to map file to load",
     )
 
     declare_prior_pcd_file_cmd = DeclareLaunchArgument(
         "prior_pcd_file",
-        default_value=os.path.join(bringup_dir, "pcd", "GX_test_3.pcd"),
+        default_value=os.path.join(bringup_dir, "pcd", "reality", "GX_test_show.pcd"),
         description="Full path to prior PCD file to load",
     )
 

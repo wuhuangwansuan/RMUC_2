@@ -49,26 +49,43 @@ def generate_launch_description():
             arguments=['--display-config', rviz_config_path]
         )
 
-    # Static transform: base_footprint -> right_lidar (for lidar 151)
+    # 静态变换: base_footprint -> left_lidar (159 雷达)
+    # 位置取自 151 安装位关于 base_footprint 的 y = 0 平面的精确镜像:
+    #   (x, -y, z), 来自机械图纸 (两个安装位 y = -/+178.97 mm, 间距 357.94 mm)。
+    # 姿态以 151 的镜像旋转 (M R M, 即 rpy -> (-roll, pitch, -yaw)) 为基准,
+    # 再叠加两项实测修正:
+    #   +3.500 度 yaw —— 装配存在真实的相对偏航误差; 用纯镜像时约 3 m 处的重影会回来。
+    #   绕 base x 轴 -1.000 度 —— 159 点云在 +y (左) 侧翘起。绕车体 x 轴旋转在 3 m 处
+    #     只带来 0.8 cm 的侧向位移, 因此几乎不影响重影。若过冲, 先改回 -0.500 度试:
+    #     对应 roll -0.644959, pitch 0.947872, yaw 1.058817。
+    # 两项修正都只改姿态, 位置必须保持不动。直接改 rpy 里的 roll/pitch 数值会绕雷达自身
+    # 的轴旋转 (3 m 处分别偏移 4.2 / 2.6 cm); 而绕 151 的位置旋转 (曾试过一次) 会把该
+    # 安装位横向拖动约 30 mm, 丢掉机械位置。
     left_lidar_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='left_lidar_broadcaster',
         arguments=[
-            '--x', '-0.13', '--y', '0.13', '--z', '0.4',
-            '--roll', '-0.6458', '--pitch', '0.9076', '--yaw', '1.0036',
+            '--x', '-0.14820', '--y', '0.17897', '--z', '0.43251',
+            '--roll', '-0.652366', '--pitch', '0.955467', '--yaw', '1.052785',
             '--frame-id', 'base_footprint', '--child-frame-id', 'left_lidar'
         ]
     )
 
-    # Static transform: base_footprint -> left_lidar (for lidar 159)
+    # 静态变换: base_footprint -> right_lidar (151 雷达)
+    # x / y / z 取自机械安装图纸: x = -148.20 mm, y = -178.97 mm,
+    # z = 432.51 mm (离地高度, 量至雷达光学中心)。
+    # roll / pitch 由 GX_test_show.pcd 的地面平面标定得到。该点云在 right_lidar 系下
+    # 地面法向为 n = [-0.807707, 0.351012, 0.473709]; 解 R @ n = e_z 可将其精确摆平
+    # (残差 0.00003 度), 这也独立印证了上面的机械值。
+    # yaw 仍是假设值: 地面平面无法约束绕竖直轴的旋转。
     right_lidar_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='right_lidar_broadcaster',
         arguments=[
-            '--x', '-0.13', '--y', '-0.13', '--z', '0.4',
-            '--roll', '0.6458', '--pitch', '0.9076', '--yaw', '-1.0036',
+            '--x', '-0.14820', '--y', '-0.17897', '--z', '0.43251',
+            '--roll', '0.637708', '--pitch', '0.940252', '--yaw', '-1.0036',
             '--frame-id', 'base_footprint', '--child-frame-id', 'right_lidar'
         ]
     )

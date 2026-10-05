@@ -210,12 +210,12 @@ def generate_launch_description():
                 name="map_server",
                 parameters=[configured_params],
             ),
-            # ComposableNode(
-            #     package="small_gicp_relocalization",
-            #     plugin="small_gicp_relocalization::SmallGicpRelocalizationNode",
-            #     name="small_gicp_relocalization",
-            #     parameters=[configured_params, {"prior_pcd_file": prior_pcd_file}],
-            # ),
+            ComposableNode(
+                package="small_gicp_relocalization",
+                plugin="small_gicp_relocalization::SmallGicpRelocalizationNode",
+                name="small_gicp_relocalization",
+                parameters=[configured_params, {"prior_pcd_file": prior_pcd_file}],
+            ),
             ComposableNode(
                 package="nav2_lifecycle_manager",
                 plugin="nav2_lifecycle_manager::LifecycleManager",
@@ -249,7 +249,7 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
-    # ld.add_action(start_static_transform_node)
+    ld.add_action(start_static_transform_node)
 
     # Add the actions to launch all of the localiztion nodes
     ld.add_action(start_fastlio_node)
