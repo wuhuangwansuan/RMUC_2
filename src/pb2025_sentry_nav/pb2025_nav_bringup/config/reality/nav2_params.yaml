@@ -219,7 +219,7 @@ slam_toolbox:
     # or at the dock, but they are mutually exclusive, if pose is given
     # will use pose
     map_file_name: origin_map_file_name                    #use origin map help robot nav when slam //现在还没有生成.posegraph格式的地图
-    map_start_pose: [0.0, 0.0, 0.0]              #set robot start pose at origin map,[x,y,yaw]
+    map_start_pose: [2.5, 2.5, 0.0]              #set robot start pose at origin map,[x,y,yaw]
     # map_start_at_dock: true
 
     debug_logging: false

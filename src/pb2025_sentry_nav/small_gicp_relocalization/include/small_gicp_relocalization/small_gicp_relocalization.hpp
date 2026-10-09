@@ -48,6 +48,7 @@ private:
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
 
   void rough_match();
+  // void reloc_checker();自适应全局重定位函数，等感知部分开发结束再添加
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
@@ -97,6 +98,10 @@ private:
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+  //粗配准定时器，暂代reloc_checker();
+  rclcpp::TimerBase::sharedPtr rough_match_timer_;
+  
 };
 
 }  // namespace small_gicp_relocalization

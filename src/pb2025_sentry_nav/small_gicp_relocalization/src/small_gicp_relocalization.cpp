@@ -128,6 +128,10 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
     std::chrono::milliseconds(500),  // 2 Hz
     std::bind(&SmallGicpRelocalizationNode::performRegistration, this));//细配准，计算纠正的坐标转换
 
+  rough_match_timer_ = this->create_wall_timer(
+    60s,
+    std::bind(&SmallGicpRelocalizationNode::rough_match, this));//粗配准定时器
+
   transform_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(50),  // 20 Hz
     std::bind(&SmallGicpRelocalizationNode::publishTransform, this));//发布map系下的odom坐标
@@ -239,7 +243,7 @@ void SmallGicpRelocalizationNode::performRegistration()
     return;
   }
 
-  rough_match();//------------------------------粗配准和细配准现在是共用同一个估计位姿变量名，不知道是否会有影响。
+  // rough_match();//------------------------------粗配准和细配准现在是共用同一个估计位姿变量名，不知道是否会有影响。
 
   register_->reduction.num_threads = num_threads_;
   register_->rejector.max_dist_sq = max_dist_sq_;//最大欧氏距离，加速每次迭代，防止个别极值拉偏迭代的位姿
@@ -314,6 +318,8 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
       robot_base_frame_.c_str(), current_scan_frame_id_.c_str(), ex.what());
   }
 }
+
+
 
 }  // namespace small_gicp_relocalization
 
