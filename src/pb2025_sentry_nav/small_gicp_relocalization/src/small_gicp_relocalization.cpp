@@ -317,6 +317,7 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
       this->get_logger(), "Could not transform initial pose from %s to %s: %s",
       robot_base_frame_.c_str(), current_scan_frame_id_.c_str(), ex.what());
   }
+  rough_match();//初始化时先进行一次粗配准，避免初始位姿不准
 }
 
 
