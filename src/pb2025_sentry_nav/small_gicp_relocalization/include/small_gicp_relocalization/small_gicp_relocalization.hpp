@@ -31,6 +31,10 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
+//细配准置信度检测
+#include <Eigen/Dense>
+#include <small_gicp/registration/registration_result.hpp>
+#include <small_gicp/util/lie.hpp>   // skew(), se3_exp()
 
 namespace small_gicp_relocalization
 {
@@ -47,7 +51,19 @@ private:
   void publishTransform();
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
 
-  void rough_match();
+  // ===== [RELOC-FIX] P2-2/P2-3: 粗配准改为返回成功与否，便于失败时回退 =====
+  bool rough_match();
+  // ===== [RELOC-FIX] 检查函数改为纯检查：先验与模式由参数传入，不再修改成员状态 =====
+  /// @param prior       NIS-2 使用的先验位姿（同时也是细配准初值）
+  /// @param coarse_mode true=粗配准后首次检查，false=一直细配准
+  bool reloc_checker(
+    const small_gicp::RegistrationResult & result,
+    const Eigen::Isometry3d & prior,
+    bool coarse_mode);
+  /// SE3 对数映射，与 small_gicp::se3_exp 约定一致（旋转在前）
+  static Eigen::Matrix<double, 6, 1> se3_log(const Eigen::Isometry3d & T);
+  /// 卡方分位数（Wilson–Hilferty 近似，无外部依赖）
+  static double chi2_quantile(int dof, double alpha);
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
@@ -57,7 +73,24 @@ private:
   float global_leaf_size_;
   float registered_leaf_size_;
   float max_dist_sq_;
+  // ===== [RELOC-FIX] P2-2/P2-3: 粗配准参数（FPFH 搜索半径 / RANSAC 外点剔除）=====
+  double fpfh_radius_;              // FPFH 特征搜索半径 [m]
+  double ransac_inlier_threshold_;  // RANSAC 内点阈值 [m]
+  int    ransac_max_iterations_;    // RANSAC 最大迭代次数
+  int    ransac_min_inliers_;       // RANSAC 最少内点数
   std::vector<double> init_pose_;
+//细配准置信度检测
+  bool   enable_reloc_check_;
+  double nis_alpha_;             // 显著性水平 α
+  double nis_prior_trans_std_;   // 细配准先验平移标准差 [m]
+  double nis_prior_rot_std_;     // 细配准先验旋转标准差 [rad]
+  // ===== [RELOC-FIX] 新增粗配准先验不确定度（原为硬编码，且旋转/平移疑似写反）=====
+  double coarse_prior_trans_std_;   // 粗配准先验平移标准差 [m]
+  double coarse_prior_rot_std_;     // 粗配准先验旋转标准差 [rad]
+  double min_inlier_ratio_;      // 最小内点率
+  double max_hessian_cond_;      // H 条件数上限
+
+  bool fine_trust_{false};
 
   std::string map_frame_;
   std::string odom_frame_;
@@ -70,6 +103,7 @@ private:
   rclcpp::Time last_scan_time_;
   Eigen::Isometry3d result_t_;
   Eigen::Isometry3d previous_result_t_;
+  Eigen::Isometry3d rough_result_t_;
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_;
   pcl::PointCloud<pcl::PointXYZ>::Ptr registered_scan_;

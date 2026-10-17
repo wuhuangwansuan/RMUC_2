@@ -164,6 +164,15 @@ small_gicp_relocalization:
     global_leaf_size: 0.1
     registered_leaf_size: 0.1
     max_dist_sq: 2.5
+    # ===== [RELOC-FIX] P2-2/P2-3: 粗配准参数 =====
+    # FPFH 特征搜索半径 [m]，应与点云 leaf 尺寸匹配（建议 2~4 倍 leaf）
+    fpfh_radius: 0.25
+    # RANSAC 内点阈值 [m]，对应点变换后距离小于此值视为内点
+    ransac_inlier_threshold: 0.5
+    # RANSAC 最大迭代次数
+    ransac_max_iterations: 1000
+    # RANSAC 最少内点数，低于此值判定粗配准失败
+    ransac_min_inliers: 10
     coarse_leaf_size: 1.5
     fine_leaf_size: 0.3
     coarse_max_iterations: 50
@@ -180,6 +189,42 @@ small_gicp_relocalization:
     tf_future_offset_sec: 0.2
     # The prior_pcd_file does not need to be specified since it going to be set by defaults in launch.
     # prior_pcd_file: ""
+
+    # ==================== 重定位置信度检测 (NIS 卡方门控) ====================
+    # 说明：细配准 (GICP) 完成后对结果做统计检验，全部通过才接受本次位姿；
+    #       任一项不通过则保持上一可信位姿，等待下一次配准。实现见 reloc_checker()。
+    #
+    # 总开关：false 时跳过全部检测，仅用于调试/标定，正式运行建议 true
+    enable_reloc_check: true
+
+    # ---- 卡方检验显著性水平 ----
+    # 显著性水平 α：卡方检验的误拒率（1-α 为置信度）。
+    # 越小越严格（门限越高、越不容易拒绝）。常用 0.05 / 0.01。
+    #   参考门限：χ²(6, 0.95)=12.59, χ²(6, 0.99)=16.81
+    nis_alpha: 0.05
+
+    # ---- NIS-2 先验位姿不确定度（填标准差，代码内会取平方成方差）----
+    # 细配准模式（一直细配准）：先验为上一帧可信位姿，不确定度应较小
+
+    # 平移标准差 [m]
+    nis_prior_trans_std: 0.5
+    # 旋转标准差 [rad]：0.1 rad ≈ 5.7° 
+    nis_prior_rot_std: 0.1
+
+    # ===== [RELOC-FIX] 粗配准模式先验不确定度（新增参数）=====
+    # 粗配准模式（失去信任后重新粗配准）：先验为 FPFH + SVD 结果，不确定度较大
+    # 平移标准差 [m]：粗配准误差通常 0.5 ~ 2 m
+    coarse_prior_trans_std: 1.5
+    # 旋转标准差 [rad]：0.2618 rad ≈ 15°
+    coarse_prior_rot_std: 0.2618
+
+    # ---- 守卫：内点率 ----
+    # 最小内点率 = num_inliers / |source|，低于此值判定匹配点不足而拒绝
+    min_inlier_ratio: 0.3
+
+    # ---- 守卫：几何退化 ----
+    # Hessian 条件数上限 κ = λmax/λmin，超过说明几何退化（长廊 / 对称场景）
+    max_hessian_cond: 1.0e6
 
 pointcloud_to_laserscan:
   ros__parameters:

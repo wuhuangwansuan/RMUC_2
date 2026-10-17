@@ -35,6 +35,11 @@ if(NOT small_gicp_FOUND)
   )
 
   fetchcontent_makeavailable(small_gicp)
+  # ===== [RELOC-FIX] 区分 FetchContent 与 find_package 两种来源的 target 名 =====
+  set(SMALL_GICP_TARGET small_gicp)
+else()
+  # find_package 导出的目标带命名空间
+  set(SMALL_GICP_TARGET small_gicp::small_gicp)
 endif()
 
 ###########
@@ -47,7 +52,7 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 
 target_link_libraries(${PROJECT_NAME}
   OpenMP::OpenMP_CXX
-  small_gicp
+  ${SMALL_GICP_TARGET}   # [RELOC-FIX] 兼容两种 target 名
 )
 
 rclcpp_components_register_node(${PROJECT_NAME}

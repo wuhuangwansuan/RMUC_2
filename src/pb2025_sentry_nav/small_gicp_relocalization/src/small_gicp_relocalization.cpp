@@ -20,6 +20,10 @@
 #include "pcl/features/normal_3d.h"
 #include "pcl/features/fpfh.h"
 #include "pcl/registration/icp.h"
+// ===== [RELOC-FIX] P2-3: RANSAC 外点剔除所需头文件 =====
+#include <pcl/registration/correspondence_estimation.h>
+#include <pcl/registration/correspondence_rejection_sample_consensus.h>
+#include <pcl/registration/transformation_estimation_svd.h>
 #include "small_gicp/pcl/pcl_registration.hpp"
 #include "small_gicp/util/downsampling_omp.hpp"
 #include "tf2_eigen/tf2_eigen.hpp"
@@ -37,6 +41,11 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->declare_parameter("global_leaf_size", 0.25);
   this->declare_parameter("registered_leaf_size", 0.25);
   this->declare_parameter("max_dist_sq", 1.0);
+  // ===== [RELOC-FIX] P2-2/P2-3: 粗配准参数 =====
+  this->declare_parameter("fpfh_radius", 0.25);              // FPFH 搜索半径 [m]
+  this->declare_parameter("ransac_inlier_threshold", 0.5);   // RANSAC 内点阈值 [m]
+  this->declare_parameter("ransac_max_iterations", 1000);    // RANSAC 最大迭代次数
+  this->declare_parameter("ransac_min_inliers", 10);         // RANSAC 最少内点数
   this->declare_parameter("map_frame", "map");
   this->declare_parameter("odom_frame", "odom");
   this->declare_parameter("base_frame", "");
@@ -45,12 +54,28 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->declare_parameter("prior_pcd_file", "");
   this->declare_parameter("init_pose", std::vector<double>{0., 0., 0., 0., 0., 0.});
   this->declare_parameter("input_cloud_topic", "registered_scan");
+//粗配准检测参数
+  this->declare_parameter("enable_reloc_check", true);
+  this->declare_parameter("nis_alpha", 0.05);
+  this->declare_parameter("nis_prior_trans_std", 0.5);
+  this->declare_parameter("nis_prior_rot_std", 0.1);
+  // ===== [RELOC-FIX] 新增粗配准先验不确定度参数 =====
+  this->declare_parameter("coarse_prior_trans_std", 1.5);     // 粗配准平移标准差 [m]
+  this->declare_parameter("coarse_prior_rot_std", 0.2618);    // 粗配准旋转标准差 [rad] ≈ 15°
+  this->declare_parameter("min_inlier_ratio", 0.3);
+  this->declare_parameter("max_hessian_cond", 1.0e6);
+
 
   this->get_parameter("num_threads", num_threads_);
   this->get_parameter("num_neighbors", num_neighbors_);
   this->get_parameter("global_leaf_size", global_leaf_size_);
   this->get_parameter("registered_leaf_size", registered_leaf_size_);
   this->get_parameter("max_dist_sq", max_dist_sq_);
+  // ===== [RELOC-FIX] P2-2/P2-3: 读取粗配准参数 =====
+  this->get_parameter("fpfh_radius", fpfh_radius_);
+  this->get_parameter("ransac_inlier_threshold", ransac_inlier_threshold_);
+  this->get_parameter("ransac_max_iterations", ransac_max_iterations_);
+  this->get_parameter("ransac_min_inliers", ransac_min_inliers_);
   this->get_parameter("map_frame", map_frame_);//地图
   this->get_parameter("odom_frame", odom_frame_);//odom
   this->get_parameter("base_frame", base_frame_);//base_footprint
@@ -59,6 +84,17 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->get_parameter("prior_pcd_file", prior_pcd_file_);
   this->get_parameter("init_pose", init_pose_);
   this->get_parameter("input_cloud_topic", input_cloud_topic_);
+  //粗配准检测参数
+  this->get_parameter("enable_reloc_check", enable_reloc_check_);
+  this->get_parameter("nis_alpha", nis_alpha_);
+  this->get_parameter("nis_prior_trans_std", nis_prior_trans_std_);
+  this->get_parameter("nis_prior_rot_std", nis_prior_rot_std_);
+  // ===== [RELOC-FIX] 读取粗配准先验不确定度参数 =====
+  this->get_parameter("coarse_prior_trans_std", coarse_prior_trans_std_);
+  this->get_parameter("coarse_prior_rot_std", coarse_prior_rot_std_);
+  this->get_parameter("min_inlier_ratio", min_inlier_ratio_);
+  this->get_parameter("max_hessian_cond", max_hessian_cond_);
+
 
   // [x, y, z, roll, pitch, yaw] - init_pose parameters
   if (!init_pose_.empty() && init_pose_.size() >= 6) {
@@ -68,7 +104,9 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
       Eigen::AngleAxisd(init_pose_[4], Eigen::Vector3d::UnitY()) *
       Eigen::AngleAxisd(init_pose_[3], Eigen::Vector3d::UnitX()).toRotationMatrix();
   }
+  //若无初始位姿，则使用单位矩阵进行初始化
   previous_result_t_ = result_t_;
+  rough_result_t_ = result_t_;
 
   //粗配准先验点云和目标点云
   rough_source = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
@@ -98,16 +136,18 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
     pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
     *global_map_, global_leaf_size_);//对提取的先验点云降采样得到target_
   
-  //抛开协方差置信度表示，仅将降采样后的点云复制给rough_target
-  rough_target->resize(target_->size());
-  for (size_t i = 0; i < target_->size(); ++i) {
-      rough_target->points[i].x = target_->points[i].x;
-      rough_target->points[i].y = target_->points[i].y;
-      rough_target->points[i].z = target_->points[i].z;
+  if(!fine_trust_)
+  {
+    //抛开协方差置信度表示，仅将降采样后的点云复制给rough_target
+    rough_target->resize(target_->size());
+    for (size_t i = 0; i < target_->size(); ++i) {
+        rough_target->points[i].x = target_->points[i].x;
+        rough_target->points[i].y = target_->points[i].y;
+        rough_target->points[i].z = target_->points[i].z;
+    }
+    rough_target->width = target_->width;
+    rough_target->height = target_->height;
   }
-  rough_target->width = target_->width;
-  rough_target->height = target_->height;
-  
 
   // Estimate covariances of points
   small_gicp::estimate_covariances_omp(*target_, num_neighbors_, num_threads_);
@@ -173,8 +213,150 @@ void SmallGicpRelocalizationNode::registeredPcdCallback(
   *accumulated_cloud_ += *scan;
 }
 
-void SmallGicpRelocalizationNode::rough_match()
+Eigen::Matrix<double, 6, 1>
+SmallGicpRelocalizationNode::se3_log(const Eigen::Isometry3d & T)
 {
+  Eigen::Matrix<double, 6, 1> xi;
+  const Eigen::AngleAxisd aa(T.linear());
+  const Eigen::Vector3d omega = aa.angle() * aa.axis();  // 旋转向量
+  xi.head<3>() = omega;                                   // 旋转在前
+
+  const double theta = omega.norm();
+  if (theta < 1e-10) {
+    xi.tail<3>() = T.translation();                       // 小角度近似
+  } else {
+    const Eigen::Matrix3d Omega = small_gicp::skew(omega);
+    const Eigen::Matrix3d V =
+      Eigen::Matrix3d::Identity()
+      + (1.0 - std::cos(theta)) / (theta * theta) * Omega
+      + (theta - std::sin(theta)) / (theta * theta * theta) * Omega * Omega;
+    xi.tail<3>() = V.inverse() * T.translation();         // V⁻¹ t
+  }
+  return xi;
+}
+
+double SmallGicpRelocalizationNode::chi2_quantile(int dof, double alpha)
+{
+  // 标准正态单边分位数查表（线性插值）
+  static const double z_tab[][2] = {
+    {0.10, 1.2816}, {0.05, 1.6449}, {0.02, 2.0537},
+    {0.01, 2.3263}, {0.005, 2.5758}, {0.001, 3.0902}};
+  double z = z_tab[2][1];
+  if (alpha >= z_tab[0][0]) {
+    z = z_tab[0][1];
+  } else {
+    for (size_t i = 0; i + 1 < 6; ++i) {
+      if (alpha <= z_tab[i][0] && alpha >= z_tab[i + 1][0]) {
+        const double t = (z_tab[i][0] - alpha) / (z_tab[i][0] - z_tab[i + 1][0]);
+        z = z_tab[i][1] + t * (z_tab[i + 1][1] - z_tab[i][1]);
+        break;
+      }
+    }
+  }
+  const double k = static_cast<double>(dof);
+  const double s = 1.0 - 2.0 / (9.0 * k) + z * std::sqrt(2.0 / (9.0 * k));
+  return k * s * s * s;   // Wilson–Hilferty
+}
+
+//细配准置信度检测
+// ===== [RELOC-FIX] 签名扩展：传入先验位姿与粗/细配准模式；移除内部对 previous_result_t_ 的修改 =====
+bool SmallGicpRelocalizationNode::reloc_checker(
+  const small_gicp::RegistrationResult & result,
+  const Eigen::Isometry3d & prior,
+  bool coarse_mode)
+{
+  if (!enable_reloc_check_) {
+    return true;
+  }
+
+  const size_t N = result.num_inliers;
+  const size_t M = source_ ? source_->size() : 0;
+  if (N < 10 || M == 0) {
+    RCLCPP_WARN(this->get_logger(), "[NIS] too few inliers: N=%zu, M=%zu", N, M);
+    return false;
+  }
+
+  // ---- 守卫 1：内点率 ----
+  const double inlier_ratio = static_cast<double>(N) / static_cast<double>(M);
+  if (inlier_ratio < min_inlier_ratio_) {
+    RCLCPP_WARN(this->get_logger(), "[NIS] inlier ratio too low: %.3f < %.3f",
+                inlier_ratio, min_inlier_ratio_);
+    return false;
+  }
+
+  // ---- NIS-1：量测空间（残差型）----
+  const int dof_res = static_cast<int>(3 * N);
+  const double eps_res = 2.0 * result.error;
+  const double thr_res = chi2_quantile(dof_res, nis_alpha_);
+  RCLCPP_INFO(this->get_logger(), "[NIS-1] eps_res=%.1f  thr=%.1f  (dof=%d, avg/pt=%.2f)",
+              eps_res, thr_res, dof_res, eps_res / static_cast<double>(dof_res));
+  if (eps_res > thr_res) {
+    RCLCPP_WARN(this->get_logger(), "[NIS-1] residual NIS rejected");
+    return false;
+  }
+  // ---- NIS-2：位姿空间（创新型）----
+  // ===== [RELOC-FIX] 按模式选择先验不确定度；delta 以传入的 prior 为基准（不再依赖成员副作用）=====
+  const double prior_rot_std = coarse_mode ? coarse_prior_rot_std_ : nis_prior_rot_std_;
+  const double prior_trans_std = coarse_mode ? coarse_prior_trans_std_ : nis_prior_trans_std_;
+
+  const Eigen::Matrix<double, 6, 1> delta =
+    se3_log(prior.inverse() * result.T_target_source);
+
+  Eigen::Matrix<double, 6, 6> Sigma_prior = Eigen::Matrix<double, 6, 6>::Zero();
+  Sigma_prior.diagonal().head<3>().setConstant(prior_rot_std * prior_rot_std);
+  Sigma_prior.diagonal().tail<3>().setConstant(prior_trans_std * prior_trans_std);
+
+  // H 可能奇异，加正则并用特征分解做截断伪逆
+  const Eigen::Matrix<double, 6, 6> H_reg =
+    result.H + 1e-9 * Eigen::Matrix<double, 6, 6>::Identity();
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> es(H_reg);
+  Eigen::Matrix<double, 6, 1> ev = es.eigenvalues();
+  // ===== [RELOC-FIX] 伪逆阈值改为相对阈值，避免依赖 H 的绝对量纲 =====
+  const double ev_floor = 1e-9 * std::max(es.eigenvalues().maxCoeff(), 1.0);
+  for (int i = 0; i < 6; ++i) {
+    ev(i) = (ev(i) > ev_floor) ? 1.0 / ev(i) : 0.0;   // 截断伪逆
+  }
+  const Eigen::Matrix<double, 6, 6> H_inv =
+    es.eigenvectors() * ev.asDiagonal() * es.eigenvectors().transpose();
+
+  const Eigen::Matrix<double, 6, 6> S = Sigma_prior + H_inv;
+  // ===== [RELOC-FIX] LLT 分解失败时显式拒绝，避免 NaN 继续传播 =====
+  Eigen::LLT<Eigen::Matrix<double, 6, 6>> llt(S);
+  if (llt.info() != Eigen::Success) {
+    RCLCPP_WARN(this->get_logger(), "[NIS-2] innovation covariance is not positive definite");
+    return false;
+  }
+  const Eigen::Matrix<double, 6, 1> w = llt.matrixL().solve(delta);  // 白化
+  const double eps_pose = w.squaredNorm();
+
+  const double thr_pose = chi2_quantile(6, nis_alpha_);
+  RCLCPP_INFO(this->get_logger(), "[NIS-2] eps_pose=%.3f  thr=%.3f  (dof=6)", eps_pose, thr_pose);
+  if (!std::isfinite(eps_pose) || eps_pose > thr_pose) {
+    RCLCPP_WARN(this->get_logger(), "[NIS-2] pose NIS rejected");
+    return false;
+  }
+
+  // ---- 守卫 4：H 条件数（几何退化）----
+  const double lmax = es.eigenvalues().maxCoeff();
+  const double lmin = std::max(es.eigenvalues().minCoeff(), 1e-12);
+  const double cond = lmax / lmin;
+  RCLCPP_INFO(this->get_logger(), "[NIS] cond(H)=%.2e", cond);
+  if (cond > max_hessian_cond_) {
+    RCLCPP_WARN(this->get_logger(), "[NIS] degenerate geometry: cond=%.2e", cond);
+    return false;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "[NIS] relocalization ACCEPTED");
+  return true;
+}
+
+bool SmallGicpRelocalizationNode::rough_match()
+{
+  if (!rough_source || !rough_target || rough_source->empty() || rough_target->empty()) {
+    RCLCPP_WARN(this->get_logger(), "[ROUGH] empty source/target cloud");
+    return false;
+  }
+
   //计算法线
   pcl::NormalEstimation<pcl::PointXYZ,pcl::Normal> normal_;
   normal_.setRadiusSearch(0.1);                                                              //法线估计半径 记得改为全局变量
@@ -185,7 +367,7 @@ void SmallGicpRelocalizationNode::rough_match()
 
   //计算特征值
   pcl::FPFHEstimation<pcl::PointXYZ,pcl::Normal,pcl::FPFHSignature33> fpfh_;
-  fpfh_.setRadiusSearch(0.001);                                                                        //设定特征值估计半径 记得改为全局变量
+  fpfh_.setRadiusSearch(fpfh_radius_);                                                                        // [RELOC-FIX] P2-2: 半径由参数 fpfh_radius 配置，需与点云 leaf 尺寸匹配
   fpfh_.setInputCloud(rough_source);
   fpfh_.setInputNormals(r_normal_source);
   fpfh_.compute(*fpfh_source);
@@ -200,11 +382,39 @@ void SmallGicpRelocalizationNode::rough_match()
   pcl::CorrespondencesPtr correspondences(new pcl::Correspondences);
   corr_est_.determineCorrespondences(*correspondences);
 
-  //SVD估计刚性变换
+  if (correspondences->size() < 3) {
+    RCLCPP_WARN(this->get_logger(), "[ROUGH] too few FPFH correspondences: %zu", correspondences->size());
+    return false;
+  }
+
+  // ===== [RELOC-FIX] P2-3: 用 RANSAC 剔除 FPFH 错配，避免直接 SVD 被离群点拉偏 =====
+  pcl::registration::CorrespondenceRejectorSampleConsensus<pcl::PointXYZ> ransac;
+  ransac.setInputSource(rough_source);
+  ransac.setInputTarget(rough_target);
+  ransac.setInlierThreshold(ransac_inlier_threshold_);
+  ransac.setMaximumIterations(ransac_max_iterations_);
+  ransac.setRefineModel(false);
+
+  pcl::CorrespondencesPtr inliers(new pcl::Correspondences);
+  ransac.getRemainingCorrespondences(*correspondences, *inliers);
+
+  if (static_cast<int>(inliers->size()) < ransac_min_inliers_) {
+    RCLCPP_WARN(
+      this->get_logger(), "[ROUGH] RANSAC inliers too few: %zu < %d (raw: %zu)",
+      inliers->size(), ransac_min_inliers_, correspondences->size());
+    return false;
+  }
+
+  RCLCPP_INFO(
+    this->get_logger(), "[ROUGH] RANSAC inliers: %zu / %zu",
+    inliers->size(), correspondences->size());
+
+  //SVD估计刚性变换（使用 RANSAC 内点）
   pcl::registration::TransformationEstimationSVD<pcl::PointXYZ,pcl::PointXYZ> rough_trans_;
   Eigen::Matrix4f transformation;
-  rough_trans_.estimateRigidTransformation(*rough_source, *rough_target, *correspondences, transformation);
-  previous_result_t_.matrix() = transformation.cast<double>();
+  rough_trans_.estimateRigidTransformation(*rough_source, *rough_target, *inliers, transformation);
+  rough_result_t_.matrix() = transformation.cast<double>();
+  return true;
 }
 
 //细配准，计算纠正的坐标转换 得到source_
@@ -223,34 +433,57 @@ void SmallGicpRelocalizationNode::performRegistration()
 
   small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);//get covariance with 'num_threads'
 
-  //抛开协方差置信度表示，仅将降采样后的点云复制给rough_source
-  rough_source->resize(source_->size());
-  for (size_t i = 0; i < source_->size(); ++i) {
-      rough_source->points[i].x = source_->points[i].x;
-      rough_source->points[i].y = source_->points[i].y;
-      rough_source->points[i].z = source_->points[i].z;
-  }
-  rough_source->width = source_->width;
-  rough_source->height = source_->height;
-
   source_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> (
     source_, small_gicp::KdTreeBuilderOMP(num_threads_));//source_tree_先验点云地图中的kdtree
   if (!source_ || !source_tree_) {
     return;
   }
 
-  rough_match();//------------------------------粗配准和细配准现在是共用同一个估计位姿变量名，不知道是否会有影响。
+  // ===== [RELOC-FIX] 粗配准结果作为细配准初值，保证粗/细配准真正衔接 =====
+  // 细配准初值：粗配准模式下用粗配准结果，否则用上一帧可信位姿
+  const bool coarse_mode = !fine_trust_;
+  Eigen::Isometry3d prior = previous_result_t_;
+
+  if (coarse_mode) {
+    //抛开协方差置信度表示，仅将降采样后的点云复制给rough_source
+    rough_source->resize(source_->size());
+    for (size_t i = 0; i < source_->size(); ++i) {
+        rough_source->points[i].x = source_->points[i].x;
+        rough_source->points[i].y = source_->points[i].y;
+        rough_source->points[i].z = source_->points[i].z;
+    }
+    rough_source->width = source_->width;
+    rough_source->height = source_->height;
+
+    // ===== [RELOC-FIX] P2-2/P2-3: 粗配准失败时回退到上一可信位姿 =====
+    if (rough_match()) {
+      prior = rough_result_t_;   // 关键：用粗配准结果作为细配准初值
+    } else {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "[ROUGH] coarse registration failed, fallback to last trusted pose");
+      prior = previous_result_t_;
+    }
+  }
 
   register_->reduction.num_threads = num_threads_;
   register_->rejector.max_dist_sq = max_dist_sq_;//最大欧氏距离，加速每次迭代，防止个别极值拉偏迭代的位姿
   register_->optimizer.max_iterations = 20;//最大迭代循环次数（20为常用值）
 
-  auto result = register_->align(*target_, *source_, *target_tree_, previous_result_t_);//计算并迭代'target'和'source'的刚体变换矩阵
+  auto result = register_->align(*target_, *source_, *target_tree_, prior);//计算并迭代'target'和'source'的刚体变换矩阵
 
-  if (result.converged) {
+  // ===== [RELOC-FIX] 用局部 accepted 表示检查结果；只有"收敛且通过"才切换状态 =====
+  const bool accepted = reloc_checker(result, prior, coarse_mode);//细配准置信度检测
+
+  if (result.converged && accepted) {
     result_t_ = previous_result_t_ = result.T_target_source;//将估计位置替换为当前位置,即最终刚体变换
+    fine_trust_ = true;   // [RELOC-FIX] 进入"一直细配准"模式
   } else {
-    RCLCPP_WARN(this->get_logger(), "GICP did not converge.");
+    fine_trust_ = false;  // [RELOC-FIX] 失去信任，下一轮重新做粗配准
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Relocalization rejected (converged=%d, accepted=%d), fallback to coarse registration.",
+      result.converged, accepted);
   }
 
   accumulated_cloud_->clear();
