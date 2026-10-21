@@ -29,6 +29,7 @@
 #include "pb_rm_interfaces/msg/rfid_status.hpp"
 #include "pb_rm_interfaces/msg/robot_status.hpp"
 #include "pb2025_sentry_behavior/custom_types.hpp"
+#include "pb2025_sentry_behavior/tactical_navigation.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/int32.hpp"
 namespace pb2025_sentry_behavior
@@ -51,33 +52,153 @@ void SentryBehaviorServer::subscribe(
 {
   auto sub = node()->create_subscription<T>(
     topic, qos,
-    [this, bb_key](const typename T::SharedPtr msg) { globalBlackboard()->set(bb_key, *msg); });
+    [this, bb_key](const typename T::SharedPtr msg) {
+      globalBlackboard()->set(bb_key, *msg);
+      globalBlackboard()->set(bb_key + "_stamp_ns", node()->now().nanoseconds());
+    });
   subscriptions_.push_back(sub);
 }
 
 SentryBehaviorServer::SentryBehaviorServer(const rclcpp::NodeOptions & options)
-: TreeExecutionServer(options)
+: TreeExecutionServer(options),
+  last_tactical_decision_stamp_(0, 0, RCL_ROS_TIME)
 {
   globalBlackboard()->set("node", node());
+  auto navigation = std::make_shared<TacticalNavigation>(node());
+  globalBlackboard()->set("tactical_navigation", navigation);
+  // Keep processing late acceptance/cancellation even when no tree is ticking.
+  std::weak_ptr<TacticalNavigation> weak_navigation = navigation;
+  const auto navigation_action = node()->declare_parameter<std::string>(
+    "navigation_action_name", "navigate_to_pose");
+  if (navigation_action.empty()) { throw std::invalid_argument("navigation_action_name is empty"); }
+  globalBlackboard()->set("navigation_action_name", navigation_action);
+  globalBlackboard()->set("validate_navigation_goals",
+    node()->declare_parameter("validate_navigation_goals", false));
+  subscribe<nav_msgs::msg::OccupancyGrid>("map", "tactical_map",
+    rclcpp::QoS(1).transient_local().reliable());
   globalBlackboard()->set("status_convert_temp_status", 2);
-////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
   node()->declare_parameter("mapping_bootstrap_enabled", false);
+  bool mapping_bootstrap_enabled = false;
   node()->get_parameter("mapping_bootstrap_enabled", mapping_bootstrap_enabled);
-  //------------------------------
-  RCLCPP_INFO(
-    node()->get_logger(), "%s",
-    greenLog(std::string("-------///////接收传入的mapping_bootstrap_enabled参数值///////------: ") +
-    (mapping_bootstrap_enabled ? "启用" : "关闭")).c_str());
-  //----------------------
   globalBlackboard()->set("mapping_bootstrap_enabled", mapping_bootstrap_enabled);
   globalBlackboard()->set("mapping_bootstrap_finished", std_msgs::msg::Bool());
+  globalBlackboard()->set(
+    "tactical_decision",
+    pb2025_sentry_decision_interfaces::msg::TacticalDecision());
+  globalBlackboard()->set("tactical_decision_stamp_ns", int64_t{0});
+  globalBlackboard()->set("active_tactical_action", -1);
+
+  node()->declare_parameter("tactical_decision_topic", "/tactical_decision");
+  node()->declare_parameter("decision_timeout_ms", 1000);
+  node()->declare_parameter("team_color", "blue");
+  node()->declare_parameter("sentry_robot_id", 7);
+  node()->declare_parameter("teammate_data_timeout_ms", 500);
+  node()->declare_parameter("cover_teammate_hp_threshold", 250);
+  node()->declare_parameter("outpost_alive_min_hp", 1);
+  node()->declare_parameter("cover_home_reference_x", 0.0);
+  node()->declare_parameter("cover_home_reference_y", 0.0);
+  node()->declare_parameter("cover_rear_distance", 1.5);
+  node()->declare_parameter("cover_side_offset", 1.0);
+  node()->declare_parameter("cover_side_sign", 1.0);
+  node()->declare_parameter("outpost_attack_goal", "5.70;-2.93;0.0");
+  node()->declare_parameter("resupply_goal", "-0.90;-6.00;0.0");
+  node()->declare_parameter("defend_base_goal", "2.70;-0.53;0.0");
+  node()->declare_parameter("defend_fortress_goal", "4.80;-2.00;0.0");
+  node()->declare_parameter("capture_point_a_goal", "8.65;-3.50;0.0");
+  node()->declare_parameter("capture_point_b_goal", "4.00;3.00;0.0");
+  node()->declare_parameter("capture_point_a_dwell_ms", 10000);
+  node()->declare_parameter("capture_point_b_dwell_ms", 10000);
+  node()->declare_parameter("gather_info_goal", "5.42;-3.41;0.0");
+  node()->declare_parameter("gather_info_dwell_ms", 5000);
+  const std::vector<std::pair<std::string, int>> tactical_parameters = {
+    {"navigation_timeout_ms", 60000}, {"navigation_cancel_timeout_ms", 2000},
+    {"action_failure_cooldown_ms", 5000}, {"cover_dwell_ms", 10000},
+    {"outpost_attack_timeout_ms", 60000}, {"resupply_timeout_ms", 30000},
+    {"resupply_hp_target", 400}, {"resupply_ammo_target", 150},
+    {"defend_dwell_ms", 10000}, {"target_locked_timeout_ms", 1000},
+    {"referee_data_timeout_ms", 1000}, {"base_hp_low", 5000}};
+  for (const auto & parameter : tactical_parameters) {
+    const int value = node()->declare_parameter<int>(parameter.first, parameter.second);
+    if (value <= 0) { throw std::invalid_argument(parameter.first + " must be positive"); }
+    globalBlackboard()->set(parameter.first, value);
+  }
+  const int cancel_timeout = node()->get_parameter("navigation_cancel_timeout_ms").as_int();
+  navigation_timer_ = node()->create_wall_timer(std::chrono::milliseconds(20),
+    [weak_navigation, cancel_timeout]() {
+      if (auto transport = weak_navigation.lock()) { transport->poll(cancel_timeout); }
+    });
+  const auto target_locked_topic = node()->declare_parameter<std::string>(
+    "target_locked_topic", "/auto_aim/target_locked");
+  subscribe<std_msgs::msg::Bool>(target_locked_topic, "auto_aim_target_locked");
+
+  std::string tactical_decision_topic;
+  node()->get_parameter("tactical_decision_topic", tactical_decision_topic);
+  int decision_timeout_ms = 1000;
+  node()->get_parameter("decision_timeout_ms", decision_timeout_ms);
+  std::string team_color;
+  node()->get_parameter("team_color", team_color);
+  int sentry_robot_id = 7;
+  node()->get_parameter("sentry_robot_id", sentry_robot_id);
+  int teammate_data_timeout_ms = 500;
+  node()->get_parameter("teammate_data_timeout_ms", teammate_data_timeout_ms);
+  int cover_teammate_hp_threshold = 250;
+  node()->get_parameter("cover_teammate_hp_threshold", cover_teammate_hp_threshold);
+  int outpost_alive_min_hp = 1;
+  node()->get_parameter("outpost_alive_min_hp", outpost_alive_min_hp);
+  double cover_home_reference_x = 0.0;
+  double cover_home_reference_y = 0.0;
+  double cover_rear_distance = 1.5;
+  double cover_side_offset = 1.0;
+  double cover_side_sign = 1.0;
+  node()->get_parameter("cover_home_reference_x", cover_home_reference_x);
+  node()->get_parameter("cover_home_reference_y", cover_home_reference_y);
+  node()->get_parameter("cover_rear_distance", cover_rear_distance);
+  node()->get_parameter("cover_side_offset", cover_side_offset);
+  node()->get_parameter("cover_side_sign", cover_side_sign);
+
+  if (decision_timeout_ms <= 0 || teammate_data_timeout_ms <= 0 ||
+      cover_teammate_hp_threshold <= 0 || cover_teammate_hp_threshold > 65535 ||
+      outpost_alive_min_hp < 0 || outpost_alive_min_hp > 65535 ||
+      (team_color != "red" && team_color != "blue") ||
+      !std::isfinite(cover_home_reference_x) || !std::isfinite(cover_home_reference_y) ||
+      !std::isfinite(cover_rear_distance) || cover_rear_distance < 0 ||
+      !std::isfinite(cover_side_offset) || !std::isfinite(cover_side_sign) ||
+      node()->get_parameter("resupply_hp_target").as_int() > 65535 ||
+      node()->get_parameter("resupply_ammo_target").as_int() > 65535) {
+    throw std::invalid_argument("Invalid tactical execution configuration");
+  }
+  globalBlackboard()->set("decision_timeout_ms", decision_timeout_ms);
+  globalBlackboard()->set("team_color", team_color);
+  globalBlackboard()->set("sentry_robot_id", sentry_robot_id);
+  globalBlackboard()->set("teammate_data_timeout_ms", teammate_data_timeout_ms);
+  globalBlackboard()->set("cover_teammate_hp_threshold", cover_teammate_hp_threshold);
+  globalBlackboard()->set("outpost_alive_min_hp", outpost_alive_min_hp);
+  globalBlackboard()->set("cover_home_reference_x", cover_home_reference_x);
+  globalBlackboard()->set("cover_home_reference_y", cover_home_reference_y);
+  globalBlackboard()->set("cover_rear_distance", cover_rear_distance);
+  globalBlackboard()->set("cover_side_offset", cover_side_offset);
+  globalBlackboard()->set("cover_side_sign", cover_side_sign);
+  const std::vector<std::string> goal_parameter_names = {
+    "outpost_attack_goal", "resupply_goal", "defend_base_goal", "defend_fortress_goal",
+    "capture_point_a_goal", "capture_point_b_goal", "gather_info_goal"};
+  for (const auto & name : goal_parameter_names) {
+    std::string value;
+    node()->get_parameter(name, value);
+    globalBlackboard()->set(name, value);
+  }
+  const std::vector<std::string> duration_parameter_names = {
+    "capture_point_a_dwell_ms", "capture_point_b_dwell_ms", "gather_info_dwell_ms"};
+  for (const auto & name : duration_parameter_names) {
+    int value = 0;
+    node()->get_parameter(name, value);
+    if (value < 0) { throw std::invalid_argument(name + " must be nonnegative"); }
+    globalBlackboard()->set(name, value);
+  }
   RCLCPP_INFO(
     node()->get_logger(), "%s",
     greenLog(std::string("行为树建图引导门控: ") +
     (mapping_bootstrap_enabled ? "启用" : "关闭")).c_str());
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   node()->declare_parameter("use_cout_logger", false);
   node()->get_parameter("use_cout_logger", use_cout_logger_);
 
@@ -90,12 +211,15 @@ SentryBehaviorServer::SentryBehaviorServer(const rclcpp::NodeOptions & options)
   subscribe<pb_rm_interfaces::msg::RobotStatus>("referee/robot_status", "referee_robotStatus");
   subscribe<pb_rm_interfaces::msg::Buff>("referee/buff", "referee_buff");
   subscribe<std_msgs::msg::Int32>("/sentry_status", "sentry_status");
-  subscribe<std_msgs::msg::Bool>("/mapping_bootstrap_finished", "mapping_bootstrap_finished");
+  subscribe<std_msgs::msg::Bool>("/mapping_bootstrap_finished", "mapping_bootstrap_finished",
+    rclcpp::QoS(1).transient_local().reliable());
 
   auto detector_qos = rclcpp::SensorDataQoS();
   subscribe<auto_aim_interfaces::msg::Armors>("detector/armors", "detector_armors", detector_qos);
   auto tracker_qos = rclcpp::SensorDataQoS();
   subscribe<auto_aim_interfaces::msg::Target>("tracker/target", "tracker_target", tracker_qos);
+  subscribe<pb2025_sentry_decision_interfaces::msg::TacticalDecision>(
+    tactical_decision_topic, "tactical_decision");
 
   auto costmap_qos = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
   subscribe<nav_msgs::msg::OccupancyGrid>(
@@ -132,10 +256,8 @@ std::optional<std::string> SentryBehaviorServer::onTreeExecutionCompleted(
     node()->get_logger(), "onTreeExecutionCompleted with status=%d (canceled=%d) after %d ticks",
     static_cast<int>(status), was_cancelled, tick_count_);
   logger_cout_.reset();
-  std::string result = treeName() +
-                       " tree completed with status=" + std::to_string(static_cast<int>(status)) +
-                       " after " + std::to_string(tick_count_) + " ticks";
-  return result;
+
+  return was_cancelled ? "behavior_tree_cancelled" : "behavior_tree_completed";
 }
 
 }  // namespace pb2025_sentry_behavior
@@ -154,15 +276,6 @@ int main(int argc, char * argv[])
   exec.add_node(action_server->node());
   exec.spin();
   exec.remove_node(action_server->node());
-
-  // Groot2 editor requires a model of your registered Nodes.
-  // You don't need to write that by hand, it can be automatically
-  // generated using the following command.
-  std::string xml_models = BT::writeTreeNodesModelXML(action_server->factory());
-
-  // Save the XML models to a file
-  std::ofstream file(std::filesystem::path(ROOT_DIR) / "behavior_trees" / "models.xml");
-  file << xml_models;
 
   rclcpp::shutdown();
 }

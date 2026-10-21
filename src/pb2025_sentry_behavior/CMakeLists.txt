@@ -31,6 +31,8 @@ ament_auto_find_build_dependencies()
 
 ament_auto_add_executable(pb2025_sentry_behavior_server src/pb2025_sentry_behavior_server.cpp)
 
+ament_auto_add_executable(tactical_scorer_node src/tactical_scorer_node.cpp)
+
 ament_auto_add_library(action_client SHARED
   src/pb2025_sentry_behavior_client.cpp
 )
@@ -95,6 +97,16 @@ list(APPEND plugin_libs pub_gimbal_velocity)
 ament_auto_add_library(calculate_attack_pose SHARED plugins/action/calculate_attack_pose.cpp)
 list(APPEND plugin_libs calculate_attack_pose)
 
+ament_auto_add_library(tactical_nodes SHARED plugins/tactical_nodes.cpp)
+list(APPEND plugin_libs tactical_nodes)
+
+ament_auto_add_library(
+  tactical_navigate_to_pose SHARED plugins/action/tactical_navigate_to_pose.cpp)
+list(APPEND plugin_libs tactical_navigate_to_pose)
+
+ament_auto_add_library(tactical_execution SHARED plugins/tactical_execution.cpp)
+list(APPEND plugin_libs tactical_execution)
+
 ####### Controls #######
 ament_auto_add_library(recovery_node SHARED plugins/condition/control/recovery_node.cpp)
 list(APPEND plugin_libs recovery_node)
@@ -112,6 +124,7 @@ endforeach()
 
 set(project_targets
   pb2025_sentry_behavior_server
+  tactical_scorer_node
   action_client
   ${plugin_libs}
 )
@@ -125,6 +138,33 @@ endforeach()
 #############
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  ament_add_test(test_referee_gate GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_referee_gate.py
+    TIMEOUT 30)
+  ament_add_test(test_decision_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_decision_launch.py
+      --launch ${CMAKE_CURRENT_SOURCE_DIR}/launch/sentry_decision_real.launch.py
+    TIMEOUT 30)
+  ament_add_test(test_tactical_server GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_tactical_server.py
+      --server $<TARGET_FILE:pb2025_sentry_behavior_server>
+      --params ${CMAKE_CURRENT_SOURCE_DIR}/params/sentry_behavior.yaml
+    TIMEOUT 30)
+
+  ament_add_gtest(test_tactical_scorer test/test_tactical_scorer.cpp src/tactical_scorer_node.cpp TIMEOUT 30)
+  ament_target_dependencies(test_tactical_scorer rclcpp std_msgs auto_aim_interfaces
+    pb_rm_interfaces pb2025_sentry_decision_interfaces)
+  target_include_directories(test_tactical_scorer PRIVATE include)
+  target_compile_definitions(test_tactical_scorer PRIVATE TACTICAL_SCORER_NO_MAIN)
+  ament_add_gtest(test_tactical_execution test/test_tactical_execution.cpp TIMEOUT 90)
+  ament_target_dependencies(test_tactical_execution rclcpp rclcpp_action nav2_msgs
+    geometry_msgs nav_msgs std_msgs pb_rm_interfaces pb2025_sentry_decision_interfaces behaviortree_ros2)
+  target_include_directories(test_tactical_execution PRIVATE include)
+  target_compile_definitions(test_tactical_execution PRIVATE PLUGIN_DIR="$<TARGET_FILE_DIR:tactical_execution>")
+  add_dependencies(test_tactical_execution tactical_execution tactical_nodes tactical_navigate_to_pose)
+
   set(ament_cmake_clang_format_CONFIG_FILE "${CMAKE_SOURCE_DIR}/.clang-format")
   find_package(ament_lint_auto REQUIRED)
   list(APPEND AMENT_LINT_AUTO_EXCLUDE
@@ -145,9 +185,18 @@ install(
   RUNTIME DESTINATION share/${PROJECT_NAME}/bt_plugins
 )
 
+install(
+  PROGRAMS
+    scripts/sentry_referee_simulator.py
+    scripts/sentry_tactical_visualizer.py
+    scripts/sentry_test_velocity_gate.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_auto_package(
   INSTALL_TO_SHARE
   behavior_trees
   params
   launch
 )
+install(FILES REAL_ROBOT_TEST_PLAN.md DESTINATION share/${PROJECT_NAME})

@@ -18,6 +18,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, PushRosNamespace, SetRemap
 from launch_ros.descriptions import ParameterFile
@@ -31,10 +32,11 @@ def generate_launch_description():
     # Create the launch configuration variables
     namespace = LaunchConfiguration("namespace")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    params_file = LaunchConfiguration("behavior_params_file")
+    params_file = LaunchConfiguration("params_file")
     log_level = LaunchConfiguration("log_level")
     mapping_bootstrap_enabled = LaunchConfiguration("mapping_bootstrap_enabled")
     target_tree = LaunchConfiguration("target_tree")
+    use_tactical_scorer = LaunchConfiguration("use_tactical_scorer")
 
     # Create our own temporary YAML files that include substitutions
     param_substitutions = {
@@ -46,7 +48,7 @@ def generate_launch_description():
     configured_params = ParameterFile(
         RewrittenYaml(
             source_file=params_file,
-            # root_key=namespace,
+            root_key=namespace,
             param_rewrites=param_substitutions,
             convert_types=True,
         ),
@@ -73,7 +75,7 @@ def generate_launch_description():
     )
 
     declare_params_file_cmd = DeclareLaunchArgument(
-        "behavior_params_file",
+        "params_file",
         default_value=os.path.join(bringup_dir, "params", "sentry_behavior.yaml"),
         description="Full path to the ROS2 parameters file to use for all launched nodes",
     )
@@ -90,8 +92,14 @@ def generate_launch_description():
 
     declare_target_tree_cmd = DeclareLaunchArgument(
         "target_tree",
-        default_value="rmul_nuc_2026",
+        default_value="sentry_tactical",
         description="Behavior tree ID to execute on startup",
+    )
+
+    declare_use_tactical_scorer_cmd = DeclareLaunchArgument(
+        "use_tactical_scorer",
+        default_value="true",
+        description="Whether to start the tactical scorer node",
     )
 
     bringup_cmd_group = GroupAction(
@@ -115,6 +123,15 @@ def generate_launch_description():
                 parameters=[configured_params],
                 arguments=["--ros-args", "--log-level", log_level],
             ),
+            Node(
+                package="pb2025_sentry_behavior",
+                executable="tactical_scorer_node",
+                name="tactical_scorer_node",
+                output="screen",
+                condition=IfCondition(use_tactical_scorer),
+                parameters=[configured_params],
+                arguments=["--ros-args", "--log-level", log_level],
+            ),
         ]
     )
 
@@ -132,6 +149,7 @@ def generate_launch_description():
     ld.add_action(declare_log_level_cmd)
     ld.add_action(declare_mapping_bootstrap_enabled_cmd)
     ld.add_action(declare_target_tree_cmd)
+    ld.add_action(declare_use_tactical_scorer_cmd)
 
     # Add the actions to launch the nodes
     ld.add_action(bringup_cmd_group)

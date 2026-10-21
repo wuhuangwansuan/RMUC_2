@@ -93,11 +93,6 @@ void SensorScanGenerationNode::laserCloudAndOdometryHandler(
   const nav_msgs::msg::Odometry::ConstSharedPtr & odometry_msg,
   const sensor_msgs::msg::PointCloud2::ConstSharedPtr & pcd_msg)
 {
-  if(!start_slam_)
-  {
-    RCLCPP_INFO(this->get_logger(),"比赛未开始，不输出点云哦～");
-    return;
-  }
   tf2::Transform tf_lidar_to_chassis;
   tf2::Transform tf_odom_to_chassis;
   tf2::Transform tf_odom_to_robot_base;
@@ -125,6 +120,15 @@ void SensorScanGenerationNode::laserCloudAndOdometryHandler(
     tf_odom_to_chassis, odometry_msg->header.frame_id, base_frame_, pcd_msg->header.stamp);
   publishOdometry(
     tf_odom_to_robot_base, odometry_msg->header.frame_id, robot_base_frame_, pcd_msg->header.stamp);
+
+  // NOTE: TF/odometry must always be published. nav2 costmaps block in
+  // Costmap2DROS::on_activate() until global_frame -> robot_base_frame resolves, and this node is
+  // the only publisher of odom -> base_footprint. Only the scan itself is gated by match start.
+  if (!start_slam_) {
+    RCLCPP_INFO_THROTTLE(
+      this->get_logger(), *this->get_clock(), 5000, "比赛未开始，不输出点云哦～");
+    return;
+  }
 
   sensor_msgs::msg::PointCloud2 out;
   pcl_ros::transformPointCloud(lidar_frame_, tf_odom_to_lidar.inverse(), *pcd_msg, out);

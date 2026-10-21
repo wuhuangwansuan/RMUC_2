@@ -6,6 +6,22 @@
             <output_port name="goal" type="geometry_msgs::msg::PoseStamped_&lt;std::allocator&lt;void&gt; &gt;" default="{attack_pose}">Expected goal pose that send to nav2. Fill with format `x;y;yaw`</output_port>
             <input_port name="topic_name" type="std::string" default="__default__placeholder__">Topic name</input_port>
         </Condition>
+        <Action ID="CalculateTeammateCoverGoal">
+            <output_port name="target_id" type="std::string">{cover_target_id}</output_port>
+            <input_port name="side_sign" type="double" default="1.000000">Lateral cover side sign</input_port>
+            <input_port name="side_offset" type="double" default="1.000000">Lateral cover offset</input_port>
+            <input_port name="rear_distance" type="double" default="1.500000">Distance behind teammate</input_port>
+            <output_port name="goal" type="std::string">{cover_goal}</output_port>
+            <input_port name="home_reference_y" type="double" default="0.000000">Retreat reference Y</input_port>
+            <input_port name="home_reference_x" type="double" default="0.000000">Retreat reference X</input_port>
+            <input_port name="hp_threshold" type="int" default="250">Teammate HP threshold</input_port>
+            <input_port name="data_timeout_ms" type="int" default="500">Maximum referee data age</input_port>
+            <input_port name="team_color" type="std::string">blue</input_port>
+            <input_port name="sentry_robot_id" type="int" default="7">Own sentry robot ID</input_port>
+            <input_port name="positions" type="pb_rm_interfaces::msg::GroundRobotPosition_&lt;std::allocator&lt;void&gt; &gt;">{@referee_groundRobotPosition}</input_port>
+            <input_port name="hp" type="pb_rm_interfaces::msg::GameRobotHP_&lt;std::allocator&lt;void&gt; &gt;">{@referee_allRobotHP}</input_port>
+        </Action>
+        <Action ID="ClearTacticalAction"/>
         <Condition ID="IsAttacked">
             <output_port name="gimbal_yaw" type="float" default="{gimbal_yaw}">Move gimbal_yaw to the direction of the hit armor plate</output_port>
             <output_port name="gimbal_pitch" type="float" default="{gimbal_pitch}">Move gimbal_pitch (const 0.0) to the direction of the hit armor plate</output_port>
@@ -31,6 +47,11 @@
             <input_port name="key_port" type="std_msgs::msg::Bool_&lt;std::allocator&lt;void&gt; &gt;" default="{@mapping_bootstrap_finished}">Mapping bootstrap finished flag</input_port>
             <input_port name="enabled" type="bool" default="true">Whether bootstrap gating is enabled</input_port>
         </Condition>
+        <Condition ID="IsOutpostAlive">
+            <input_port name="min_hp" type="int" default="1">Minimum outpost HP</input_port>
+            <input_port name="team_color" type="std::string">blue</input_port>
+            <input_port name="hp" type="pb_rm_interfaces::msg::GameRobotHP_&lt;std::allocator&lt;void&gt; &gt;">{@referee_allRobotHP}</input_port>
+        </Condition>
         <Condition ID="IsRfidDetected">
             <input_port name="friendly_supply_zone_exchange" type="bool" default="false">己方与兑换区重叠的补给区</input_port>
             <input_port name="friendly_supply_zone_non_exchange" type="bool" default="false">己方与兑换区不重叠的补给区 / RMUL 补给区</input_port>
@@ -50,6 +71,25 @@
             <input_port name="timeout_sec" type="int" default="290">Maximum continuous dwell time in seconds</input_port>
             <input_port name="status_port" type="std_msgs::msg::Int32_&lt;std::allocator&lt;void&gt; &gt;" default="{@sentry_status}">Sentry status port on blackboard</input_port>
             <input_port name="game_status_port" type="pb_rm_interfaces::msg::GameStatus_&lt;std::allocator&lt;void&gt; &gt;" default="{@referee_gameStatus}">GameStatus port on blackboard</input_port>
+        </Condition>
+        <Condition ID="IsTacticalAction">
+            <input_port name="decision_timeout_ms" type="int" default="1000">Decision freshness timeout in milliseconds</input_port>
+            <input_port name="allow_stale" type="bool" default="false">Allow stale tactical decisions</input_port>
+            <input_port name="decision" type="pb2025_sentry_decision_interfaces::msg::TacticalDecision_&lt;std::allocator&lt;void&gt; &gt;">{@tactical_decision}</input_port>
+            <input_port name="action" type="int" default="0">Expected tactical action enum</input_port>
+        </Condition>
+        <Condition ID="IsTacticalDecisionFresh">
+            <input_port name="timeout_ms" type="int" default="1000">Decision freshness timeout in milliseconds</input_port>
+            <input_port name="decision_stamp_ns" type="long">{@tactical_decision_stamp_ns}</input_port>
+            <input_port name="decision" type="pb2025_sentry_decision_interfaces::msg::TacticalDecision_&lt;std::allocator&lt;void&gt; &gt;">{@tactical_decision}</input_port>
+        </Condition>
+        <Condition ID="IsTeammateCoverCandidate">
+            <input_port name="hp_threshold" type="int" default="250">Teammate HP threshold</input_port>
+            <input_port name="data_timeout_ms" type="int" default="500">Maximum referee data age</input_port>
+            <input_port name="team_color" type="std::string">blue</input_port>
+            <input_port name="sentry_robot_id" type="int" default="7">Own sentry robot ID</input_port>
+            <input_port name="positions" type="pb_rm_interfaces::msg::GroundRobotPosition_&lt;std::allocator&lt;void&gt; &gt;">{@referee_groundRobotPosition}</input_port>
+            <input_port name="hp" type="pb_rm_interfaces::msg::GameRobotHP_&lt;std::allocator&lt;void&gt; &gt;">{@referee_allRobotHP}</input_port>
         </Condition>
         <Action ID="PubNav2Goal">
             <input_port name="topic_name" type="std::string" default="/goal_pose">Topic name used to publish nav goal</input_port>
@@ -93,6 +133,13 @@
         <Control ID="RecoveryNode">
             <input_port name="num_attempts" type="int" default="999">Number of retries</input_port>
         </Control>
+        <Action ID="SelectDefenseGoal">
+            <output_port name="goal" type="std::string">{defense_goal}</output_port>
+            <input_port name="fortress_goal" type="std::string">0;0;0</input_port>
+            <input_port name="base_goal" type="std::string">0;0;0</input_port>
+            <input_port name="base_hp_threshold" type="int" default="5000">Base HP threshold</input_port>
+            <input_port name="event" type="pb_rm_interfaces::msg::EventData_&lt;std::allocator&lt;void&gt; &gt;">{@referee_eventData}</input_port>
+        </Action>
         <Action ID="SendNav2Goal">
             <input_port name="goal" type="std::string" default="0;0;0">Expected goal pose that send to nav2. Fill with format `x;y;yaw`</input_port>
             <input_port name="action_name" type="std::string" default="">Action server name</input_port>
@@ -103,8 +150,18 @@
             <input_port name="temporary_status" type="int" default="2">Temporary status used to break continuous dwell timing</input_port>
             <input_port name="original_status" type="int">Original status to restore after the temporary transition</input_port>
         </Action>
+        <Action ID="TacticalNavigateToPose">
+            <input_port name="action_name" type="std::string" default="navigate_to_pose">Nav2 action name</input_port>
+            <input_port name="timeout_ms" type="int" default="60000">Per-leg navigation timeout</input_port>
+            <input_port name="goal" type="std::string" />
+        </Action>
         <Decorator ID="TickAfterTimeout">
             <input_port name="timeout" type="float">time in s to wait before ticking child again</input_port>
         </Decorator>
+        <Control ID="TacticalDispatch" />
+        <Action ID="TacticalWait">
+            <input_port name="duration_ms" type="int" default="10000">Wait duration or deadline</input_port>
+            <input_port name="mode" type="std::string" default="dwell">hold, dwell, resupply, outpost, gather</input_port>
+        </Action>
     </TreeNodesModel>
 </root>

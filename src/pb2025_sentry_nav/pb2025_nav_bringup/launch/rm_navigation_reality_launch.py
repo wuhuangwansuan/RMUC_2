@@ -256,7 +256,7 @@ def generate_launch_description():
     ld.add_action(start_livox_ros_driver2_node)
     ld.add_action(bringup_cmd)
     ld.add_action(mapping_bootstrap_cmd)
-    ld.add_action(behavior_cmd)
+    # ld.add_action(behavior_cmd)
     # ld.add_action(joy_teleop_cmd)
     ld.add_action(rviz_cmd)
 

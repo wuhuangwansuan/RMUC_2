@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "behaviortree_ros2/tree_execution_server.hpp"
+#include "pb2025_sentry_decision_interfaces/msg/tactical_decision.hpp"
+#include "pb2025_sentry_decision_interfaces/msg/tactical_execution.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace pb2025_sentry_behavior
@@ -73,11 +75,12 @@ private:
     const std::string & topic, const std::string & bb_key,
     const rclcpp::QoS & qos = rclcpp::QoS(10));
 
+  rclcpp::TimerBase::SharedPtr navigation_timer_;
   std::vector<std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
   std::shared_ptr<BT::StdCoutLogger> logger_cout_;
   uint32_t tick_count_;
   bool use_cout_logger_;
-  bool mapping_bootstrap_enabled{false};
+  rclcpp::Time last_tactical_decision_stamp_;
 };
 
 }  // namespace pb2025_sentry_behavior

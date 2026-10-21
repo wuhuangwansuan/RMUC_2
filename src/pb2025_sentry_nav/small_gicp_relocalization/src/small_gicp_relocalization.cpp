@@ -65,6 +65,21 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->declare_parameter("min_inlier_ratio", 0.3);
   this->declare_parameter("max_hessian_cond", 1.0e6);
 
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 粗/细两级配准参数 =====
+  // coarse_leaf_size：粗配准所用点云的体素边长。点数随 leaf³ 下降，
+  //   本场地先验地图 0.1 m→1.36e5 点，1.5 m→约 6.7e2 点（约 200 倍差距）。
+  this->declare_parameter("coarse_leaf_size", 1.5);
+  // fine_leaf_size：细配准（GICP）源点云体素边长；<=0 时沿用 registered_leaf_size。
+  this->declare_parameter("fine_leaf_size", 0.0);
+  // GICP 迭代上限：粗配准模式初值差，给更多迭代；位姿可信后无需太多。
+  this->declare_parameter("coarse_max_iterations", 50);
+  this->declare_parameter("fine_max_iterations", 30);
+  // 粗配准结果相对上一可信位姿允许的最大修正量，超出即判为跑飞并回退。
+  this->declare_parameter("coarse_max_translation_delta", 8.0);
+  this->declare_parameter("coarse_max_rotation_delta_deg", 35.0);
+  // map->odom 时间戳前推量，供下游按略晚于扫描时刻查询变换。
+  this->declare_parameter("tf_future_offset_sec", 0.1);
+
 
   this->get_parameter("num_threads", num_threads_);
   this->get_parameter("num_neighbors", num_neighbors_);
@@ -94,6 +109,27 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->get_parameter("coarse_prior_rot_std", coarse_prior_rot_std_);
   this->get_parameter("min_inlier_ratio", min_inlier_ratio_);
   this->get_parameter("max_hessian_cond", max_hessian_cond_);
+
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 读取粗/细两级配准参数 =====
+  this->get_parameter("coarse_leaf_size", coarse_leaf_size_);
+  this->get_parameter("fine_leaf_size", fine_leaf_size_);
+  this->get_parameter("coarse_max_iterations", coarse_max_iterations_);
+  this->get_parameter("fine_max_iterations", fine_max_iterations_);
+  this->get_parameter("coarse_max_translation_delta", coarse_max_translation_delta_);
+  this->get_parameter("coarse_max_rotation_delta_deg", coarse_max_rotation_delta_deg_);
+  this->get_parameter("tf_future_offset_sec", tf_future_offset_sec_);
+  // fine_leaf_size 未配置时保持旧行为（与 GICP 源点云原来的分辨率一致）  ##2026-10-20##
+  if (fine_leaf_size_ <= 0.0f) {
+    fine_leaf_size_ = registered_leaf_size_;
+  }
+  // 粗配准体素必须比细配准更粗，否则粗配准没有任何提速意义  ##2026-10-20##
+  if (coarse_leaf_size_ < fine_leaf_size_) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "coarse_leaf_size (%.3f) < fine_leaf_size (%.3f), clamping to fine_leaf_size",
+      coarse_leaf_size_, fine_leaf_size_);
+    coarse_leaf_size_ = fine_leaf_size_;
+  }
 
 
   // [x, y, z, roll, pitch, yaw] - init_pose parameters
@@ -138,15 +174,19 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   
   if(!fine_trust_)
   {
-    //抛开协方差置信度表示，仅将降采样后的点云复制给rough_target
-    rough_target->resize(target_->size());
-    for (size_t i = 0; i < target_->size(); ++i) {
-        rough_target->points[i].x = target_->points[i].x;
-        rough_target->points[i].y = target_->points[i].y;
-        rough_target->points[i].z = target_->points[i].z;
-    }
-    rough_target->width = target_->width;
-    rough_target->height = target_->height;
+    // ===== ##2026-10-20## [RELOC-FIX] P2-2: 粗配准目标点云按 coarse_leaf_size 真正降采样 =====
+    // 这里不是简单复制 target_（那样分辨率仍是 global_leaf_size=0.1 m，约 1.36e5 点），
+    // 而是把 target_ 再体素化到 coarse_leaf_size（1.5 m 时约 6.7e2 点）。
+    // 之后 FPFH 特征与暴力对应搜索的规模下降约两个数量级，粗配准耗时从分钟级降到亚秒级。
+    // 从 target_ 而不是 global_map_ 出发，是因为 target_ 已完成 0.1 m 体素化，点数少 8 倍，
+    // 且每个 0.1 m 体素等权，得到的粗体素质心比原始扫描点密度更均匀。
+    rough_target = small_gicp::voxelgrid_sampling_omp<
+      pcl::PointCloud<pcl::PointCovariance>, pcl::PointCloud<pcl::PointXYZ>>(
+      *target_, coarse_leaf_size_, num_threads_);
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Coarse registration target: %zu -> %zu points (leaf %.2f m)",
+      target_->size(), rough_target->size(), coarse_leaf_size_);
   }
 
   // Estimate covariances of points
@@ -357,9 +397,18 @@ bool SmallGicpRelocalizationNode::rough_match()
     return false;
   }
 
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 法线 / FPFH 搜索半径必须随粗配准体素一起放大 =====
+  // 若沿用 0.1 m 的法线半径，在 1.5 m 体素的粗配准点云上每个点都找不到邻居，
+  // 法线退化为 NaN，FPFH 全为零，粗配准必然失败。约定：
+  //   法线半径 = 2 × coarse_leaf_size
+  //   FPFH 半径 = max(fpfh_radius, 3 × coarse_leaf_size)
+  const double coarse_normal_radius = 2.0 * static_cast<double>(coarse_leaf_size_);
+  const double coarse_fpfh_radius =
+    std::max(fpfh_radius_, 3.0 * static_cast<double>(coarse_leaf_size_));
+
   //计算法线
   pcl::NormalEstimation<pcl::PointXYZ,pcl::Normal> normal_;
-  normal_.setRadiusSearch(0.1);                                                              //法线估计半径 记得改为全局变量
+  normal_.setRadiusSearch(coarse_normal_radius);   // 与粗配准体素匹配，见上
   normal_.setInputCloud(rough_source);
   normal_.compute(*r_normal_source);   
   normal_.setInputCloud(rough_target);
@@ -367,7 +416,7 @@ bool SmallGicpRelocalizationNode::rough_match()
 
   //计算特征值
   pcl::FPFHEstimation<pcl::PointXYZ,pcl::Normal,pcl::FPFHSignature33> fpfh_;
-  fpfh_.setRadiusSearch(fpfh_radius_);                                                                        // [RELOC-FIX] P2-2: 半径由参数 fpfh_radius 配置，需与点云 leaf 尺寸匹配
+  fpfh_.setRadiusSearch(coarse_fpfh_radius);   // ##2026-10-20## [RELOC-FIX] P2-2: 随 coarse_leaf_size 自动放大
   fpfh_.setInputCloud(rough_source);
   fpfh_.setInputNormals(r_normal_source);
   fpfh_.compute(*fpfh_source);
@@ -388,10 +437,14 @@ bool SmallGicpRelocalizationNode::rough_match()
   }
 
   // ===== [RELOC-FIX] P2-3: 用 RANSAC 剔除 FPFH 错配，避免直接 SVD 被离群点拉偏 =====
+  // ##2026-10-20## 内点阈值改为随粗配准体素放大：粗体素内的质心偏差可达约半个体素对角线，
+  // 沿用 0.5 m 会把墙面上本来正确的对应点判成外点。
+  const double coarse_inlier_threshold =
+    std::max(ransac_inlier_threshold_, 0.6 * static_cast<double>(coarse_leaf_size_));
   pcl::registration::CorrespondenceRejectorSampleConsensus<pcl::PointXYZ> ransac;
   ransac.setInputSource(rough_source);
   ransac.setInputTarget(rough_target);
-  ransac.setInlierThreshold(ransac_inlier_threshold_);
+  ransac.setInlierThreshold(coarse_inlier_threshold);
   ransac.setMaximumIterations(ransac_max_iterations_);
   ransac.setRefineModel(false);
 
@@ -427,9 +480,10 @@ void SmallGicpRelocalizationNode::performRegistration()
     RCLCPP_INFO(this->get_logger(), "////Performing registration with %zu accumulated points ////", accumulated_cloud_->size());
   }
 
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 细配准源点云使用 fine_leaf_size =====
   source_ = small_gicp::voxelgrid_sampling_omp<
     pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-    *accumulated_cloud_, registered_leaf_size_);//downsample the accumulated_cloud to 'registered_leaf_size_' and put it into 'source_'
+    *accumulated_cloud_, fine_leaf_size_);//downsample the accumulated_cloud to 'fine_leaf_size_' and put it into 'source_'
 
   small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);//get covariance with 'num_threads'
 
@@ -445,19 +499,34 @@ void SmallGicpRelocalizationNode::performRegistration()
   Eigen::Isometry3d prior = previous_result_t_;
 
   if (coarse_mode) {
-    //抛开协方差置信度表示，仅将降采样后的点云复制给rough_source
-    rough_source->resize(source_->size());
-    for (size_t i = 0; i < source_->size(); ++i) {
-        rough_source->points[i].x = source_->points[i].x;
-        rough_source->points[i].y = source_->points[i].y;
-        rough_source->points[i].z = source_->points[i].z;
-    }
-    rough_source->width = source_->width;
-    rough_source->height = source_->height;
+    // ===== ##2026-10-20## [RELOC-FIX] P2-2: 粗配准源点云按 coarse_leaf_size 真正降采样 =====
+    // 必须与 rough_target 使用同一体素尺寸，否则两侧 FPFH 描述子的尺度不一致，
+    // 匹配率极低。这里从 source_ 出发（已是 fine_leaf_size，点数远少于原始累积帧）。
+    rough_source = small_gicp::voxelgrid_sampling_omp<
+      pcl::PointCloud<pcl::PointCovariance>, pcl::PointCloud<pcl::PointXYZ>>(
+      *source_, coarse_leaf_size_, num_threads_);
 
     // ===== [RELOC-FIX] P2-2/P2-3: 粗配准失败时回退到上一可信位姿 =====
     if (rough_match()) {
-      prior = rough_result_t_;   // 关键：用粗配准结果作为细配准初值
+      // ===== ##2026-10-20## [RELOC-FIX] P2-2: 粗配准结果合理性守卫 =====
+      // FPFH + RANSAC 在对称 / 空旷场地偶尔给出完全错误的解，若直接作为 GICP 初值，
+      // 后续 NIS 还可能因为"自洽的错误位姿"而误接受。这里用相对上一可信位姿的
+      // 平移/旋转修正量做一道硬门限（对应参数 coarse_max_translation_delta /
+      // coarse_max_rotation_delta_deg）。
+      static constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
+      const Eigen::Isometry3d delta = rough_result_t_ * previous_result_t_.inverse();
+      const double d_trans = delta.translation().norm();
+      const double d_rot_deg = Eigen::AngleAxisd(delta.rotation()).angle() * kRadToDeg;
+      if (
+        d_trans > coarse_max_translation_delta_ || d_rot_deg > coarse_max_rotation_delta_deg_) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "[ROUGH] coarse result rejected: delta t=%.2f m (limit %.2f), r=%.1f deg (limit %.1f)",
+          d_trans, coarse_max_translation_delta_, d_rot_deg, coarse_max_rotation_delta_deg_);
+        prior = previous_result_t_;
+      } else {
+        prior = rough_result_t_;   // 关键：用粗配准结果作为细配准初值
+      }
     } else {
       RCLCPP_WARN(
         this->get_logger(),
@@ -468,7 +537,10 @@ void SmallGicpRelocalizationNode::performRegistration()
 
   register_->reduction.num_threads = num_threads_;
   register_->rejector.max_dist_sq = max_dist_sq_;//最大欧氏距离，加速每次迭代，防止个别极值拉偏迭代的位姿
-  register_->optimizer.max_iterations = 20;//最大迭代循环次数（20为常用值）
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 迭代上限按模式取值 =====
+  // 粗配准模式的初值误差大，需要更多迭代才能收敛（原先硬编码 20 常出现 converged=false）；
+  // 位姿可信后每帧只做微调，fine_max_iterations 足够。
+  register_->optimizer.max_iterations = coarse_mode ? coarse_max_iterations_ : fine_max_iterations_;
 
   auto result = register_->align(*target_, *source_, *target_tree_, prior);//计算并迭代'target'和'source'的刚体变换矩阵
 
@@ -496,8 +568,11 @@ void SmallGicpRelocalizationNode::publishTransform()
   }
 
   geometry_msgs::msg::TransformStamped transform_stamped;
-  // `+ 0.1` means transform into future. according to https://robotics.stackexchange.com/a/96615
-  transform_stamped.header.stamp = last_scan_time_ + rclcpp::Duration::from_seconds(0.1);
+  // ##2026-10-20## 时间戳前推量改为参数 tf_future_offset_sec（原为硬编码 0.1 s），
+  // 使下游在略晚于扫描时刻查询时仍能命中该变换
+  // （见 https://robotics.stackexchange.com/a/96615）
+  transform_stamped.header.stamp =
+    last_scan_time_ + rclcpp::Duration::from_seconds(tf_future_offset_sec_);
   transform_stamped.header.frame_id = map_frame_;
   transform_stamped.child_frame_id = odom_frame_;
 

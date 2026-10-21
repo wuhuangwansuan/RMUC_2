@@ -12,8 +12,13 @@
   <author email="lihanchen2004@163.com">Lihan Chen</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_auto</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclpy</depend>
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
   <depend>tf2</depend>
@@ -21,14 +26,25 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>behaviortree_ros2</depend>
+  <depend>behaviortree_cpp</depend>
   <depend>pb_rm_interfaces</depend>
+  <depend>pb2025_sentry_decision_interfaces</depend>
   <depend>auto_aim_interfaces</depend>
   <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <exec_depend>nav2_common</exec_depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>example_interfaces</depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>btcpp_ros2_interfaces</test_depend>
+  <test_depend>ros2launch</test_depend>
+  <test_depend>action_msgs</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>ament_cmake_clang_format</test_depend>

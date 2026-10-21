@@ -73,6 +73,16 @@ private:
   float global_leaf_size_;
   float registered_leaf_size_;
   float max_dist_sq_;
+  // ===== ##2026-10-20## [RELOC-FIX] P2-2: 粗/细两级配准的分辨率与迭代控制 =====
+  // 粗配准（FPFH + RANSAC）的耗时近似正比于点数²，必须先按 coarse_leaf_size 大幅降采样，
+  // 否则在 0.1 m 的全图上做 FPFH 会让单次配准耗时达到分钟级，期间 map->odom 停止更新。
+  float coarse_leaf_size_;    // 粗配准源/目标点云体素边长 [m]
+  float fine_leaf_size_;      // 细配准（GICP）源点云体素边长 [m]，<=0 时沿用 registered_leaf_size
+  int coarse_max_iterations_; // 粗配准模式下 GICP 迭代上限（初值误差大，需要更多迭代）
+  int fine_max_iterations_;   // 细配准（位姿已可信）模式下 GICP 迭代上限
+  double coarse_max_translation_delta_;   // 粗配准结果相对上一可信位姿允许的最大平移修正 [m]
+  double coarse_max_rotation_delta_deg_;  // 粗配准结果相对上一可信位姿允许的最大旋转修正 [deg]
+  double tf_future_offset_sec_;           // map->odom 时间戳前推量 [s]
   // ===== [RELOC-FIX] P2-2/P2-3: 粗配准参数（FPFH 搜索半径 / RANSAC 外点剔除）=====
   double fpfh_radius_;              // FPFH 特征搜索半径 [m]
   double ransac_inlier_threshold_;  // RANSAC 内点阈值 [m]

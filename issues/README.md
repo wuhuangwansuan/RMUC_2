@@ -20,6 +20,9 @@
 | 002 | 🔴 | `origin` 地图目录名多一个前导空格 | slam_toolbox 读 origin 图失败（续建图失效） | [002-origin-dir-leading-space.md](./002-origin-dir-leading-space.md) |
 | 003 | 🟡 | `mapping_mission_manager` 逻辑/时序疑点 | 建图引导行为与文案不一致、回调阻塞、超时后可能重发导航 | [003-mapping-mission-manager-suspects.md](./003-mapping-mission-manager-suspects.md) |
 | 004 | 🟡 | 驱动 `is_timestamp_sync_` 全局共享（两雷达互相污染） | 送帧节拍在两套时钟间横跳（001 的子问题） | [004-livox-timestamp-sync-flag.md](./004-livox-timestamp-sync-flag.md) |
+| 005 | 🔴 | `small_gicp_relocalization` 注册回调阻塞同节点 TF 发布 | 致命：`map→odom` 冻结 → nav2 目标变换失败、`follow_path` abort | [005-small-gicp-registration-blocks-tf-publish.md](./005-small-gicp-registration-blocks-tf-publish.md) |
+| 006 | ✅ | 粗配准在 0.1 m 全图上做 FPFH，单次注册 65 s | 致命：重定位耗时分钟级（已改为两级体素，离线实测 0.23 s） | [006-coarse-registration-full-map-fpfh.md](./006-coarse-registration-full-map-fpfh.md) |
+| 007 | 🔴 | 导航 ⇄ 决策数据流审计（`/cmd_vel` 断链等 F1~F6） | 功能失效：未开赛停车无效；建图门控未覆盖实际链路；战术决策降级 | [007-nav-decision-dataflow-audit.md](./007-nav-decision-dataflow-audit.md) |
 
 ## 约定
 
@@ -33,3 +36,6 @@
 | 日期 | 变更 |
 |------|------|
 | 2026-10-04 | 建立 `issues/` 目录；由根目录 `issue.md` 拆分录入 001 / 002 / 003 / 004 |
+| 2026-10-20 | 新增 005：`small_gicp_relocalization` 注册阻塞 TF 发布（含最小复现程序） |
+| 2026-10-20 | 新增 006：粗配准全图 FPFH 导致单次注册 65 s；记录已实施的两级体素改动与离线实测 |
+| 2026-10-20 | 新增 007：导航⇄决策数据流审计（F1~F6，含 `/cmd_vel` 断链与建图门控未覆盖） |

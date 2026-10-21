@@ -162,21 +162,32 @@ small_gicp_relocalization:
     num_threads: 4
     num_neighbors: 10
     global_leaf_size: 0.1
+    # ##2026-10-20## 细配准源点云体素 [m]：仅在 fine_leaf_size <= 0 时作为回退值生效
     registered_leaf_size: 0.1
     max_dist_sq: 2.5
     # ===== [RELOC-FIX] P2-2/P2-3: 粗配准参数 =====
-    # FPFH 特征搜索半径 [m]，应与点云 leaf 尺寸匹配（建议 2~4 倍 leaf）
+    # ##2026-10-20## FPFH 特征搜索半径 [m]。实际生效值 = max(fpfh_radius, 3 × coarse_leaf_size)，
+    # 法线半径 = 2 × coarse_leaf_size（均随 coarse_leaf_size 自动放大，
+    # 否则粗配准点云在 0.1 m 半径内没有邻居，法线为 NaN、FPFH 全零）
     fpfh_radius: 0.25
-    # RANSAC 内点阈值 [m]，对应点变换后距离小于此值视为内点
+    # ##2026-10-20## RANSAC 内点阈值 [m]，对应点变换后距离小于此值视为内点。
+    # 实际生效值 = max(ransac_inlier_threshold, 0.6 × coarse_leaf_size)
     ransac_inlier_threshold: 0.5
     # RANSAC 最大迭代次数
     ransac_max_iterations: 1000
     # RANSAC 最少内点数，低于此值判定粗配准失败
     ransac_min_inliers: 10
+    # ---- ##2026-10-20## 粗/细两级配准的分辨率与迭代 ----
+    # coarse_leaf_size：粗配准（FPFH + RANSAC）源/目标点云的体素边长 [m]。
+    #   先验地图点数随 leaf³ 下降：0.1 m→约 1.4e5、0.5 m→约 6.3e3、1.5 m→约 6.7e2。
+    #   调小可提高粗配准精度但耗时急剧上升（FPFH 与暴力对应搜索近似 O(N²)）。
     coarse_leaf_size: 1.5
+    # fine_leaf_size：细配准（GICP）源点云体素边长 [m]；<=0 时沿用 registered_leaf_size
     fine_leaf_size: 0.3
+    # GICP 迭代上限：粗配准模式初值误差大，需要更多迭代；位姿可信后只需微调
     coarse_max_iterations: 50
     fine_max_iterations: 30
+    # 粗配准结果相对上一可信位姿允许的最大修正量，超出即判为跑飞并回退到上一可信位姿
     coarse_max_translation_delta: 8.0
     coarse_max_rotation_delta_deg: 35.0
     map_frame: "map"
@@ -186,6 +197,7 @@ small_gicp_relocalization:
     lidar_frame: "right_lidar"
     init_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # [x, y, z, roll, pitch, yaw]
     input_cloud_topic: "registered_scan"
+    # ##2026-10-20## map->odom 时间戳前推量 [s]，原先在代码里硬编码为 0.1
     tf_future_offset_sec: 0.2
     # The prior_pcd_file does not need to be specified since it going to be set by defaults in launch.
     # prior_pcd_file: ""
@@ -214,7 +226,7 @@ small_gicp_relocalization:
     # ===== [RELOC-FIX] 粗配准模式先验不确定度（新增参数）=====
     # 粗配准模式（失去信任后重新粗配准）：先验为 FPFH + SVD 结果，不确定度较大
     # 平移标准差 [m]：粗配准误差通常 0.5 ~ 2 m
-    coarse_prior_trans_std: 1.5
+    coarse_prior_trans_std: 2.0
     # 旋转标准差 [rad]：0.2618 rad ≈ 15°
     coarse_prior_rot_std: 0.2618
 
@@ -224,7 +236,9 @@ small_gicp_relocalization:
 
     # ---- 守卫：几何退化 ----
     # Hessian 条件数上限 κ = λmax/λmin，超过说明几何退化（长廊 / 对称场景）
-    max_hessian_cond: 1.0e6
+    # 注意：必须写成 1000000.0。YAML 1.1 不接受无符号指数（1.0e6 会被当成字符串，
+    # 在 use_composition:=True 时导致节点构造抛 InvalidParameterTypeException）
+    max_hessian_cond: 1000000.0
 
 pointcloud_to_laserscan:
   ros__parameters:
@@ -497,8 +511,8 @@ local_costmap:
       global_frame: odom
       robot_base_frame: gimbal_yaw_fake
       rolling_window: true
-      width: 15
-      height: 15
+      width: 8
+      height: 8
       resolution: 0.05
       robot_radius: 0.2
       footprint: "[[-0.3, -0.3],[-0.3, 0.3], [0.3, 0.3], [0.3, -0.3]]"
@@ -535,10 +549,10 @@ local_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 5.5
+        cost_scaling_factor: 10.0
                              # 让局部规划更明显地惩罚贴障路径。增大这个参数会使得成本地图中靠近障碍物的区域成本增加得更快，从而让局部规划更倾向于选择远离障碍物的路径。合理设置这个参数可以帮助机器人更好地避开障碍物，提高导航的安全性和效率。
                                                       # 减小这个参数会使得成本地图中靠近障碍物的区域成本增加得更慢，从而让局部规划更倾向于选择靠近障碍物的路径。合理设置这个参数可以帮助机器人在狭窄环境中更灵活地导航，但也可能增加碰撞的风险。
-        inflation_radius: 0.65                    # >= 机器人外接半径 + 安全余量，防止贴障行走。
+        inflation_radius: 0.31                    # >= 机器人外接半径 + 安全余量，防止贴障行走。
       always_send_full_costmap: False  #
 
 global_costmap:
@@ -587,7 +601,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 10.0     # 让全局规划更明显地惩罚贴障路径。
-        inflation_radius: 0.4
+        inflation_radius: 0.31
       always_send_full_costmap: False
 
 # The yaml_filename does not need to be specified since it going to be set by defaults in launch.
