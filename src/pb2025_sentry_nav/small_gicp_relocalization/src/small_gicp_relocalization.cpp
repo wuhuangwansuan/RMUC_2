@@ -477,7 +477,7 @@ void SmallGicpRelocalizationNode::performRegistration()
     RCLCPP_WARN(this->get_logger(), "No accumulated points to process.");
     return;
   }else {
-    RCLCPP_INFO(this->get_logger(), "////Performing registration with %zu accumulated points ////", accumulated_cloud_->size());
+    RCLCPP_DEBUG(this->get_logger(), "////Performing registration with %zu accumulated points ////", accumulated_cloud_->size());
   }
 
   // ===== ##2026-10-20## [RELOC-FIX] P2-2: 细配准源点云使用 fine_leaf_size =====
@@ -587,9 +587,9 @@ void SmallGicpRelocalizationNode::publishTransform()
   transform_stamped.transform.rotation.z = rotation.z();
   transform_stamped.transform.rotation.w = rotation.w();
 
-  RCLCPP_INFO(this->get_logger(),"||x:%f",translation.x());
-  RCLCPP_INFO(this->get_logger(),"||y:%f",translation.y());
-  RCLCPP_INFO(this->get_logger(),"||z:%f",translation.z());
+  RCLCPP_DEBUG(this->get_logger(),"||x:%f",translation.x());
+  RCLCPP_DEBUG(this->get_logger(),"||y:%f",translation.y());
+  RCLCPP_DEBUG(this->get_logger(),"||z:%f",translation.z());
 
   tf_broadcaster_->sendTransform(transform_stamped);
 }

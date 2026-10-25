@@ -11,6 +11,7 @@
 | 🟡 | 观察 / 存疑（尚未确认或暂不处理） |
 | ✅ | 已修（保留记录） |
 | ⚪ | 已排除 |
+| 📘 | 参考文档（非缺陷记录） |
 
 ## 索引
 
@@ -23,6 +24,8 @@
 | 005 | 🔴 | `small_gicp_relocalization` 注册回调阻塞同节点 TF 发布 | 致命：`map→odom` 冻结 → nav2 目标变换失败、`follow_path` abort | [005-small-gicp-registration-blocks-tf-publish.md](./005-small-gicp-registration-blocks-tf-publish.md) |
 | 006 | ✅ | 粗配准在 0.1 m 全图上做 FPFH，单次注册 65 s | 致命：重定位耗时分钟级（已改为两级体素，离线实测 0.23 s） | [006-coarse-registration-full-map-fpfh.md](./006-coarse-registration-full-map-fpfh.md) |
 | 007 | 🔴 | 导航 ⇄ 决策数据流审计（`/cmd_vel` 断链等 F1~F6） | 功能失效：未开赛停车无效；建图门控未覆盖实际链路；战术决策降级 | [007-nav-decision-dataflow-audit.md](./007-nav-decision-dataflow-audit.md) |
+| 008 | 📘 | `local_costmap` 参数详解与调参指南 | 调参效率（含 3 处注释错误与竖直窗口 0.8 m 陷阱） | [008-local-costmap-params-tuning.md](./008-local-costmap-params-tuning.md) |
+| 009 | ✅ | MPPI 巡航全程爬行、临近目标固定距离突然加速 | 功能失效：障碍代价压过所有 critic → 只减速不前进（已改配置，待实车复测） | [009-mppi-cruise-slow-goal-sprint.md](./009-mppi-cruise-slow-goal-sprint.md) |
 
 ## 约定
 
@@ -39,3 +42,5 @@
 | 2026-10-20 | 新增 005：`small_gicp_relocalization` 注册阻塞 TF 发布（含最小复现程序） |
 | 2026-10-20 | 新增 006：粗配准全图 FPFH 导致单次注册 65 s；记录已实施的两级体素改动与离线实测 |
 | 2026-10-20 | 新增 007：导航⇄决策数据流审计（F1~F6，含 `/cmd_vel` 断链与建图门控未覆盖） |
+| 2026-10-21 | 新增 008：`local_costmap` 参数详解与调参指南（源码级核对，含注释错误与体素竖直窗口陷阱） |
+| 2026-10-23 | 新增 009：MPPI 巡航爬行 / 末端冲刺（`ObstaclesCritic` 二次代价与 `collision_margin_distance` 覆盖整条膨胀带） |

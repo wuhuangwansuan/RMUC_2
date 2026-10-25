@@ -20,18 +20,19 @@ pb2025_sentry_behavior_server:
     cover_side_offset: 1.0
     cover_side_sign: 1.0
     outpost_attack_goal: "5.70;-2.93;0.0"
-    resupply_goal: "-0.90;-6.00;0.0"
-    defend_base_goal: "2.70;-0.53;0.0"
+    resupply_goal: "0.0;0.0;0.0"
+    defend_base_goal: "1.0;0.0;0.0"
     defend_fortress_goal: "4.80;-2.00;0.0"
     capture_point_a_goal: "8.65;-3.50;0.0"
     capture_point_b_goal: "4.00;3.00;0.0"
     capture_point_a_dwell_ms: 10000
     capture_point_b_dwell_ms: 10000
-    gather_info_goal: "5.42;-3.41;0.0"
+    gather_info_goal: "5 .42;-3.0;0.0"
     gather_info_dwell_ms: 5000  # Continuous time without a fresh target lock
     navigation_action_name: navigate_to_pose
     navigation_timeout_ms: 60000
     navigation_cancel_timeout_ms: 2000
+    navigation_server_wait_timeout_ms: 10000
     action_failure_cooldown_ms: 5000
     cover_dwell_ms: 10000
     outpost_attack_timeout_ms: 60000
@@ -42,7 +43,7 @@ pb2025_sentry_behavior_server:
     target_locked_topic: /auto_aim/target_locked
     target_locked_timeout_ms: 1000
     referee_data_timeout_ms: 1000
-    base_hp_low: 5000
+    base_hp_low: 1000
 
     plugins:
       - pb2025_sentry_behavior/bt_plugins
@@ -69,7 +70,7 @@ tactical_scorer_node:
     decision_timeout_ms: 1000
     mapping_bootstrap_enabled: false
     action_failure_cooldown_ms: 5000
-    hp_low: 180
+    hp_low: 1800
     ammo_low: 50
     hp_critical: 100
     ammo_critical: 10
@@ -77,7 +78,7 @@ tactical_scorer_node:
     heat_critical_ratio: 0.95
     # Game, robot and base/fortress event data are mandatory safety inputs.
     referee_data_timeout_ms: 1000
-    base_hp_low: 5000
+    base_hp_low: 1000
     target_lost_timeout_ms: 800
     decision_topic: /tactical_decision
     team_color: blue
@@ -85,7 +86,7 @@ tactical_scorer_node:
     teammate_data_timeout_ms: 500
     cover_teammate_hp_threshold: 250
     outpost_alive_min_hp: 1
-    outpost_reference_hp: 1800
+    outpost_reference_hp: 1500
     decision_hold_ms: 500
     action_switch_margin: 0.08
     # Action importance uses TacticalDecision action IDs in this order:
