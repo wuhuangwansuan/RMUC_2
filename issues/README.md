@@ -26,6 +26,7 @@
 | 007 | 🔴 | 导航 ⇄ 决策数据流审计（`/cmd_vel` 断链等 F1~F6） | 功能失效：未开赛停车无效；建图门控未覆盖实际链路；战术决策降级 | [007-nav-decision-dataflow-audit.md](./007-nav-decision-dataflow-audit.md) |
 | 008 | 📘 | `local_costmap` 参数详解与调参指南 | 调参效率（含 3 处注释错误与竖直窗口 0.8 m 陷阱） | [008-local-costmap-params-tuning.md](./008-local-costmap-params-tuning.md) |
 | 009 | ✅ | MPPI 巡航全程爬行、临近目标固定距离突然加速 | 功能失效：障碍代价压过所有 critic → 只减速不前进（已改配置，待实车复测） | [009-mppi-cruise-slow-goal-sprint.md](./009-mppi-cruise-slow-goal-sprint.md) |
+| 010 | 🟡 | `local_costmap` / `global_costmap` 参数与数学原理梳理 | 导航安全边界与调参依据（与 008 互补：008 聚焦 local 调参，本篇含 global 与源码级推导） | [010-costmap-local-global-params.md](./010-costmap-local-global-params.md) |
 
 ## 约定
 
@@ -44,3 +45,4 @@
 | 2026-10-20 | 新增 007：导航⇄决策数据流审计（F1~F6，含 `/cmd_vel` 断链与建图门控未覆盖） |
 | 2026-10-21 | 新增 008：`local_costmap` 参数详解与调参指南（源码级核对，含注释错误与体素竖直窗口陷阱） |
 | 2026-10-23 | 新增 009：MPPI 巡航爬行 / 末端冲刺（`ObstaclesCritic` 二次代价与 `collision_margin_distance` 覆盖整条膨胀带） |
+| 2026-10-27 | 新增 010：`local_costmap` / `global_costmap` 参数与数学原理梳理（自旧分支 `auto_reloc_checker/_10_9` 的 105 合入，重编号为 010） |
